@@ -1,0 +1,514 @@
+#!/usr/bin/env python3
+"""
+Session Buffer — Compact Hook
+
+Handles context preservation across Claude Code compaction events.
+
+Pre-compact: Autosaves hot layer and writes .compact_marker file.
+Post-compact: If marker exists, injects sigma trunk summary into AI context.
+
+Called by hooks/hooks.json via the plugin system.
+Usage: run_python compact_hook.py [pre-compact|post-compact]
+"""
+
+import sys
+import os
+import io
+import json
+from pathlib import Path
+from datetime import date
+
+# Force UTF-8 on Windows (buffer data contains unicode)
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+
+# ---------------------------------------------------------------------------
+# Utilities
+# ---------------------------------------------------------------------------
+
+def find_buffer_dir(start_path):
+    """Walk up from start_path looking for .claude/buffer/handoff.json."""
+    current = os.path.abspath(start_path)
+    while True:
+        candidate = os.path.join(current, '.claude', 'buffer', 'handoff.json')
+        if os.path.exists(candidate):
+            return os.path.join(current, '.claude', 'buffer')
+        parent = os.path.dirname(current)
+        if parent == current:
+            return None
+        current = parent
+
+
+def read_json(path):
+    """Read JSON file, return dict or None."""
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return None
+
+
+def write_json(path, data):
+    """Write dict to JSON file."""
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write('\n')
+
+
+def read_hook_input():
+    """Read hook input JSON from stdin (non-blocking)."""
+    try:
+        stdin_data = sys.stdin.read()
+        if stdin_data.strip():
+            return json.loads(stdin_data)
+    except (json.JSONDecodeError, OSError):
+        pass
+    return {}
+
+
+def detect_warm_max(cwd):
+    """Check project skill config for warm-max override, default 500."""
+    import re
+    project_on = os.path.join(cwd, '.claude', 'skills', 'buffer', 'on.md')
+    if os.path.exists(project_on):
+        try:
+            with open(project_on, 'r', encoding='utf-8') as f:
+                content = f.read()
+            match = re.search(r'warm[_\s]*max[^:]*?(\d+)', content, re.IGNORECASE)
+            if match:
+                return int(match.group(1))
+        except OSError:
+            pass
+    return 500
+
+
+# ---------------------------------------------------------------------------
+# Pre-compact: autosave hot layer before compaction
+# ---------------------------------------------------------------------------
+
+def cmd_pre_compact(hook_input):
+    """Save hot layer state and write a compact marker before context is compressed."""
+    cwd = hook_input.get('cwd', os.getcwd())
+    buffer_dir = find_buffer_dir(cwd)
+
+    if not buffer_dir:
+        sys.exit(0)  # No buffer -> allow compaction
+
+    hot_path = os.path.join(buffer_dir, 'handoff.json')
+    hot = read_json(hot_path)
+
+    if not hot:
+        sys.exit(0)  # No valid hot layer -> allow compaction
+
+    # Validate hot layer structure (warn but don't block — PreCompact cannot block)
+    if not isinstance(hot, dict) or 'schema_version' not in hot:
+        print("compact_hook: hot layer corrupt or missing schema_version", file=sys.stderr)
+        sys.exit(0)  # Cannot block compaction, just skip
+
+    # Update date
+    today = date.today().isoformat()
+    if 'session_meta' not in hot:
+        hot['session_meta'] = {}
+    hot['session_meta']['date'] = today
+
+    # Try to capture current HEAD commit
+    try:
+        import subprocess
+        result = subprocess.run(
+            ['git', 'rev-parse', '--short', 'HEAD'],
+            capture_output=True, text=True, timeout=5, cwd=cwd
+        )
+        if result.returncode == 0:
+            hot['session_meta']['commit'] = result.stdout.strip()
+    except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+        pass
+
+    # Append compaction marker to natural_summary
+    summary = hot.get('natural_summary', '')
+    if '[compacted]' not in summary:
+        hot['natural_summary'] = (
+            summary + ' [compacted] Context compacted -- '
+            'hot layer preserved by pre-compact hook.'
+        )
+
+    # Write marker file so post-compact knows compaction occurred
+    marker_path = os.path.join(buffer_dir, '.compact_marker')
+    try:
+        with open(marker_path, 'w') as f:
+            f.write(today)
+    except OSError:
+        pass
+
+    # Save hot layer
+    write_json(hot_path, hot)
+    sys.exit(0)  # Allow compaction
+
+
+# ---------------------------------------------------------------------------
+# Post-compact: inject buffer context into the post-compaction instance
+# ---------------------------------------------------------------------------
+
+def detect_distill_in_progress(cwd):
+    """Check for signs of an active distillation that was interrupted by compaction.
+
+    Looks for ephemeral files the distill process creates during extraction:
+    - _distill_text.txt (extracted text from PDF/web/image/recording)
+    - _distill_scan.py (scan script)
+    - _distill_extract.py (extraction script)
+    - _distill_figures/ (figure extraction output)
+    Also checks for very recently modified distillation .md files.
+    """
+    result = {}
+    repo = Path(cwd)
+
+    # Check for extracted text file (strongest signal)
+    text_file = repo / '_distill_text.txt'
+    if text_file.exists():
+        result['extracted_text'] = str(text_file)
+        # Read first few lines to identify the source
+        try:
+            with open(text_file, 'r', encoding='utf-8', errors='replace') as f:
+                header_lines = []
+                for i, line in enumerate(f):
+                    if i >= 10:
+                        break
+                    header_lines.append(line.rstrip())
+                result['text_preview'] = header_lines
+                # Count total lines for size indication
+                f.seek(0)
+                result['text_lines'] = sum(1 for _ in f)
+        except OSError:
+            pass
+
+    # Check for scan/extract scripts (means extraction phase)
+    for script_name in ['_distill_scan.py', '_distill_extract.py']:
+        script = repo / script_name
+        if script.exists():
+            result.setdefault('ephemeral_scripts', []).append(script_name)
+
+    # Check for figure extraction output
+    fig_dir = repo / '_distill_figures'
+    if fig_dir.exists() and fig_dir.is_dir():
+        try:
+            fig_count = len(list(fig_dir.glob('*.png')))
+            result['figures_extracted'] = fig_count
+        except OSError:
+            pass
+
+    # Check for distillation directory and very recent .md files (last 10 min)
+    import time
+    now = time.time()
+    distill_dirs = [
+        repo / 'docs' / 'references' / 'distilled',
+        repo / 'docs' / 'distilled',
+        repo / 'distilled',
+    ]
+    for d in distill_dirs:
+        if d.exists():
+            try:
+                for md in d.glob('*.md'):
+                    mtime = md.stat().st_mtime
+                    if now - mtime < 600:  # Modified in last 10 minutes
+                        result.setdefault('recent_distillations', []).append({
+                            'file': md.name,
+                            'seconds_ago': int(now - mtime)
+                        })
+            except OSError:
+                pass
+            break  # Only check first existing dir
+
+    # Check for project distill skill config
+    project_skill = repo / '.claude' / 'skills' / 'distill' / 'SKILL.md'
+    if project_skill.exists():
+        result['has_project_skill'] = True
+
+    return result if result else None
+
+
+def build_compact_summary(hot, buffer_dir, warm_max):
+    """Build a concise buffer summary for post-compaction context injection.
+
+    Shorter than a full buffer read -- focuses on orientation and active work
+    state rather than deep reference material.
+    """
+    lines = []
+    lines.append("POST-COMPACTION SIGMA TRUNK RECOVERY")
+    lines.append("=" * 40)
+    lines.append("")
+    lines.append(
+        "Context compaction detected. The buffer system preserved hot-layer "
+        "state before compaction. Below is the reconstructed context."
+    )
+    lines.append("")
+
+    # --- Session state ---
+    meta = hot.get('session_meta', {})
+    mode = hot.get('buffer_mode', 'unknown')
+    lines.append(f"Mode: {mode} | Schema: v{hot.get('schema_version', '?')}")
+    lines.append(
+        f"Last: {meta.get('date', '?')} | "
+        f"Commit: {meta.get('commit', '?')} ({meta.get('branch', '?')}) | "
+        f"Tests: {meta.get('tests', '?')}"
+    )
+    lines.append("")
+
+    # --- Active work ---
+    aw = hot.get('active_work', {})
+    if aw:
+        lines.append("## Active Work")
+        lines.append(f"Phase: {aw.get('current_phase', '?')}")
+        completed = aw.get('completed_this_session', [])
+        if completed:
+            for c in completed[-3:]:  # Last 3 only
+                lines.append(f"  done: {c}")
+            if len(completed) > 3:
+                lines.append(f"  ... and {len(completed) - 3} more")
+        ip = aw.get('in_progress')
+        if ip:
+            lines.append(f"In progress: {ip}")
+        blocked = aw.get('blocked_by')
+        if blocked:
+            lines.append(f"BLOCKED: {blocked}")
+        na = aw.get('next_action')
+        if na:
+            lines.append(f"Next: {na}")
+        lines.append("")
+
+    # --- Orientation (core insight only) ---
+    orient = hot.get('orientation', {})
+    if orient:
+        lines.append("## Orientation")
+        ci = orient.get('core_insight', '')
+        if ci:
+            lines.append(ci)
+        pw = orient.get('practical_warning', '')
+        if pw:
+            lines.append(f"WARNING: {pw}")
+        lines.append("")
+
+    # --- Open threads ---
+    threads = hot.get('open_threads', [])
+    if threads:
+        lines.append(f"## Open Threads ({len(threads)})")
+        for t in threads:
+            status = t.get('status', '?')
+            desc = t.get('thread', '?')
+            ref = t.get('ref', '')
+            ref_str = f" -> {ref}" if ref else ""
+            lines.append(f"  [{status}] {desc}{ref_str}")
+        lines.append("")
+
+    # --- Recent decisions (last 3) ---
+    decisions = hot.get('recent_decisions', [])
+    if decisions:
+        lines.append(f"## Recent Decisions ({len(decisions)})")
+        for d in decisions[-3:]:
+            lines.append(f"  {d.get('what', '?')} -> {d.get('chose', '?')}")
+        if len(decisions) > 3:
+            lines.append(f"  ... and {len(decisions) - 3} more")
+        lines.append("")
+
+    # --- Instance notes (critical for continuity) ---
+    notes = hot.get('instance_notes', {})
+    if notes:
+        lines.append("## Instance Notes")
+        remarks = notes.get('remarks', [])
+        for r in remarks[:5]:
+            lines.append(f"  * {r}")
+        if len(remarks) > 5:
+            lines.append(f"  ... and {len(remarks) - 5} more")
+        oq = notes.get('open_questions', [])
+        if oq:
+            for q in oq[:3]:
+                lines.append(f"  ? {q}")
+        lines.append("")
+
+    # --- Natural summary ---
+    ns = hot.get('natural_summary', '')
+    if ns:
+        lines.append("## Natural Summary")
+        lines.append(ns)
+        lines.append("")
+
+    # --- Concept map digest (counts only) ---
+    cmd = hot.get('concept_map_digest', {})
+    if cmd:
+        meta_cm = cmd.get('_meta', {})
+        total = meta_cm.get('total_entries', '?')
+        flagged = cmd.get('flagged', [])
+        lines.append(f"## Concept Map: {total} entries")
+        if flagged:
+            lines.append(f"FLAGGED: {', '.join(str(f) for f in flagged)}")
+        recent = cmd.get('recent_changes', [])
+        if recent:
+            lines.append(f"Recent changes: {len(recent)} entries")
+        lines.append("")
+
+    # --- Convergence web digest (counts only) ---
+    cwd_digest = hot.get('convergence_web_digest', {})
+    if cwd_digest:
+        cw_meta = cwd_digest.get('_meta', {})
+        cw_total = cw_meta.get('total_entries', '?')
+        lines.append(f"## Convergence Web: {cw_total} entries")
+        lines.append("")
+
+    # --- Memory config ---
+    mc = hot.get('memory_config', {})
+    if mc:
+        lines.append(f"## Memory: integration={mc.get('integration', '?')}")
+        lines.append(f"Path: {mc.get('path', '?')}")
+        lines.append("")
+
+    # --- Layer sizes ---
+    hot_lines = len(json.dumps(hot, indent=2).split('\n'))
+    warm_path = os.path.join(buffer_dir, hot.get('warm_ref', 'handoff-warm.json'))
+    cold_path = os.path.join(buffer_dir, hot.get('cold_ref', 'handoff-cold.json'))
+
+    warm_lines = 0
+    cold_lines = 0
+    try:
+        with open(warm_path, 'r', encoding='utf-8') as f:
+            warm_lines = len(f.readlines())
+    except (FileNotFoundError, OSError):
+        pass
+    try:
+        with open(cold_path, 'r', encoding='utf-8') as f:
+            cold_lines = len(f.readlines())
+    except (FileNotFoundError, OSError):
+        pass
+
+    lines.append(f"## Layer Sizes: Hot {hot_lines}/200 | Warm {warm_lines}/{warm_max} | Cold {cold_lines}/500")
+    lines.append("")
+
+    # --- Distill-in-progress detection ---
+    # Derive cwd from buffer_dir (go up from .claude/buffer/ to repo root)
+    repo_root = str(Path(buffer_dir).parent.parent)
+    distill_state = detect_distill_in_progress(repo_root)
+    if distill_state:
+        lines.append("## DISTILLATION IN PROGRESS (interrupted by compaction)")
+        lines.append("")
+        if 'extracted_text' in distill_state:
+            tl = distill_state.get('text_lines', '?')
+            lines.append(f"Extracted text: {distill_state['extracted_text']} ({tl} lines)")
+            preview = distill_state.get('text_preview', [])
+            if preview:
+                lines.append("First lines:")
+                for pl in preview[:5]:
+                    if pl.strip():
+                        lines.append(f"  | {pl[:120]}")
+        if 'ephemeral_scripts' in distill_state:
+            lines.append(f"Ephemeral scripts present: {', '.join(distill_state['ephemeral_scripts'])}")
+        if 'figures_extracted' in distill_state:
+            lines.append(f"Figures extracted: {distill_state['figures_extracted']}")
+        if 'recent_distillations' in distill_state:
+            for rd in distill_state['recent_distillations']:
+                lines.append(f"Recently modified: {rd['file']} ({rd['seconds_ago']}s ago)")
+        if distill_state.get('has_project_skill'):
+            lines.append("Project distill skill: exists")
+        lines.append("")
+        lines.append("DISTILL RECOVERY: The extracted text file is on disk. Resume from")
+        lines.append("the analytic passes (Pass 2+). Do NOT re-extract. Read the text")
+        lines.append("file, confirm the source label with the user, then continue the")
+        lines.append("pipeline from where it was interrupted.")
+        lines.append("")
+
+    # --- Consistency check directive ---
+    lines.append("=" * 40)
+    lines.append("REQUIRED: Post-Compaction Consistency Check")
+    lines.append("1. Compare active_work and open_threads against your compaction summary")
+    lines.append("2. Fix any hot-layer mismatches (hot only -- do NOT touch warm)")
+    lines.append("3. Verify natural_summary has [compacted] marker")
+    lines.append("4. Arm autosave")
+    if distill_state:
+        lines.append("5. Resume interrupted distillation (see DISTILL RECOVERY above)")
+    else:
+        lines.append("5. Resume user's work")
+
+    return "\n".join(lines)
+
+
+def cmd_post_compact(hook_input):
+    """Inject buffer context after compaction (only if marker exists)."""
+    cwd = hook_input.get('cwd', os.getcwd())
+    buffer_dir = find_buffer_dir(cwd)
+
+    empty_output = {
+        "additional_context": "",
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": ""
+        }
+    }
+
+    if not buffer_dir:
+        json.dump(empty_output, sys.stdout, ensure_ascii=False)
+        sys.exit(0)
+
+    # Guard: only inject if pre-compact wrote a marker
+    marker_path = os.path.join(buffer_dir, '.compact_marker')
+    if not os.path.exists(marker_path):
+        json.dump(empty_output, sys.stdout, ensure_ascii=False)
+        sys.exit(0)
+
+    hot_path = os.path.join(buffer_dir, 'handoff.json')
+    hot = read_json(hot_path)
+
+    if not hot:
+        json.dump(empty_output, sys.stdout, ensure_ascii=False)
+        sys.exit(0)
+
+    # Detect warm-max override
+    warm_max = detect_warm_max(cwd)
+
+    # Build concise summary for injection
+    context = build_compact_summary(hot, buffer_dir, warm_max)
+
+    # Clean up marker
+    try:
+        os.remove(marker_path)
+    except OSError:
+        pass
+
+    # Output JSON for hook system
+    output = {
+        "additional_context": context,
+        "hookSpecificOutput": {
+            "hookEventName": "SessionStart",
+            "additionalContext": context
+        }
+    }
+    json.dump(output, sys.stdout, ensure_ascii=False)
+    sys.exit(0)
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    if len(sys.argv) < 2 or sys.argv[1] in ('-h', '--help'):
+        print(
+            "Usage: compact_hook.py <pre-compact|post-compact>\n\n"
+            "  pre-compact   Autosave hot layer before context compaction\n"
+            "  post-compact  Inject buffer context after compaction\n\n"
+            "Called by the plugin hook system. Reads hook input JSON from stdin.",
+            file=sys.stderr
+        )
+        sys.exit(0 if '--help' in sys.argv else 1)
+
+    hook_input = read_hook_input()
+
+    command = sys.argv[1]
+    if command == 'pre-compact':
+        cmd_pre_compact(hook_input)
+    elif command == 'post-compact':
+        cmd_post_compact(hook_input)
+    else:
+        print(f"compact_hook: unknown command '{command}'", file=sys.stderr)
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()
