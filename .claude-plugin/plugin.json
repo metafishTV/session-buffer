@@ -5,5 +5,5 @@
   "author": {
     "name": "metafish"
   },
-  "claude_code_version": ">=1.0.0"
+  "source": "./"
 }

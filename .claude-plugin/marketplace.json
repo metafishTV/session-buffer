@@ -1,6 +1,5 @@
 {
-  "name": "session-buffer",
-  "description": "Three-layer session memory plugin for Claude Code",
+  "name": "session-buffer-marketplace",
   "owner": {
     "name": "metafish"
   },
