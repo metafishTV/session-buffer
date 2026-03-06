@@ -5,7 +5,7 @@ description: Write session handoff to sigma trunk. Run at session end or when co
 
 # Session Handoff
 
-**Architecture reference**: For buffer layer schemas, size constraints, ID rules, and the consolidation protocol, see `SKILL.md` in this directory.
+**Architecture reference**: For sigma trunk layer schemas, size constraints, ID rules, and the consolidation protocol, read `docs/architecture.md` in the plugin directory (only when you need schema details for validation or writing).
 
 ## Instance Primer
 
