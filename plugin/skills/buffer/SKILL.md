@@ -1,14 +1,14 @@
 ---
 name: buffer
-description: Three-layer session buffer (sigma trunk) for cross-instance continuity. Operations — /buffer-on (reconstruct context), /buffer-off (write handoff).
+description: Three-layer session buffer (sigma trunk) for cross-instance continuity. Operations — /session-buffer:on (reconstruct context), /session-buffer:off (write handoff).
 ---
 
 # Buffer System
 
 Session continuity for multi-instance projects. Two operations:
 
-- **`/buffer-on`** — Reconstruct context from previous session's handoff buffer. Run at session start.
-- **`/buffer-off`** — Write structured handoff buffer for the next instance. Run at session end.
+- **`/session-buffer:on`** — Reconstruct context from previous session's handoff buffer. Run at session start.
+- **`/session-buffer:off`** — Write structured handoff buffer for the next instance. Run at session end.
 
 The **alpha stash** is the ephemeral session intake — computed, merged into the trunk, then gone. The **sigma trunk** is the persistent knowledge: hot (always loaded), warm (selectively loaded), cold (on-demand only).
 

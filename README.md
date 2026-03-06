@@ -25,7 +25,7 @@ Each session, you compute the **alpha stash** (what's new since the last handoff
 
 **End of session:**
 ```
-/buffer-off
+/session-buffer:off
 ```
 Choose your handoff mode:
 - **Totalize** -- Complete handoff (concept maps, consolidation, full commit)
@@ -34,13 +34,13 @@ Choose your handoff mode:
 
 **Start of session:**
 ```
-/buffer-on
+/session-buffer:on
 ```
 Select your project from the list. Context reconstructed automatically.
 
 ## Scope: Full vs Lite
 
-First time you run `/buffer-off`, you choose your scope:
+First time you run `/session-buffer:off`, you choose your scope:
 
 | | Full | Lite |
 |---|---|---|

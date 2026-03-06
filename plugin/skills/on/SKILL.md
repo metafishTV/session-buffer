@@ -1,5 +1,5 @@
 ---
-name: buffer-on
+name: on
 description: Reconstruct session context from sigma trunk. Run at session start.
 ---
 
@@ -9,7 +9,7 @@ description: Reconstruct session context from sigma trunk. Run at session start.
 
 ## Instance Primer
 
-You are running `/buffer-on`. Reconstruct context from the sigma trunk so you can
+You are running `/session-buffer:on`. Reconstruct context from the sigma trunk so you can
 work effectively without the user re-explaining everything.
 
 The sigma trunk has three layers: Hot (~200 lines, always loaded), Warm (~500 lines,
@@ -46,26 +46,8 @@ The `read` command outputs a complete formatted reconstruction covering session 
 
 ## Step 0: Project Routing
 
-```dot
-digraph routing {
-  "Start" [shape=doublecircle];
-  "Project skill exists?" [shape=diamond];
-  "Defer to project skill" [shape=box];
-  "Local trunk exists?" [shape=diamond];
-  "Use local trunk" [shape=box];
-  "Project selector" [shape=diamond];
-  "Select project" [shape=box];
-  "First-run setup" [shape=box];
-
-  "Start" -> "Project skill exists?";
-  "Project skill exists?" -> "Defer to project skill" [label="yes"];
-  "Project skill exists?" -> "Local trunk exists?" [label="no"];
-  "Local trunk exists?" -> "Use local trunk" [label="yes"];
-  "Local trunk exists?" -> "Project selector" [label="no"];
-  "Project selector" -> "Select project" [label="has entries"];
-  "Project selector" -> "First-run setup" [label="empty or missing"];
-}
-```
+**MANDATORY**: Always show the project selector popup before loading anything.
+Never auto-load a trunk without user confirmation.
 
 ### 0a: Check for project skill
 
@@ -74,32 +56,38 @@ digraph routing {
 3. **If it exists**: read that file and follow its instructions instead. Stop processing this file.
 4. **If not**: continue below.
 
-### 0b: Check for local sigma trunk
+### 0b: Gather context (do NOT load yet)
 
-Check if `<repo>/.claude/buffer/handoff.json` exists.
+Collect available options silently — do NOT load any trunk data at this point:
 
-- **If it exists**: use it. Proceed to Step 1.
-- **If not**: continue to 0c.
+1. Check if `<repo>/.claude/buffer/handoff.json` exists (local trunk)
+2. Read `~/.claude/buffer/projects.json` if it exists (global registry)
+3. Build the option list for the selector
 
-### 0c: Project selector
+### 0c: Project selector (ALWAYS shown)
 
-Read `~/.claude/buffer/projects.json`. Present options via AskUserQuestion popup
-based on registry state:
+**You MUST present this popup via AskUserQuestion before proceeding.**
+The popup adapts to what was found in 0b:
 
-**One project registered:**
-- Resume [project name] (last handoff: [date])
+**Local trunk found + registry has entries:**
+- Resume local project: [project name from local trunk] (last handoff: [date])
+- Switch to another project (shows full list)
 - Start new project
 - Start lite session
 
-**Multiple projects registered:**
+**Local trunk found + no registry:**
+- Resume local project: [project name from local trunk] (last handoff: [date])
+- Start new project
+- Start lite session
+
+**No local trunk + registry has entries:**
 - Resume [most recent project] (last handoff: [date])
-- Switch project (shows full list with dates and one-line context)
+- Switch to another project (shows full list)
 - Start new project
 - Start lite session
 
-**No projects registered:**
-- Start new project
-- Start lite session
+**No local trunk + no registry (first run):**
+- Proceed directly to first-run setup (0d)
 
 "Most recent" = highest last_handoff date in the registry.
 
@@ -163,7 +151,7 @@ After registering the project, configure how MEMORY.md and the sigma trunk coexi
       migrate to the trunk's concept_map. No content is lost.
 
    2. No integration — Leave MEMORY.md as-is. The sigma trunk operates
-      independently. Duplicate content may load in /buffer-on sessions.
+      independently. Duplicate content may load in /session-buffer:on sessions.
    ```
 
 3. Record the choice in the hot layer:
@@ -184,7 +172,7 @@ After registering the project, configure how MEMORY.md and the sigma trunk coexi
      - Add `## Sigma Trunk Integration` pointer:
        ```
        Theoretical framework, cross-source mappings, and session state live in
-       `.claude/buffer/`. Run `/buffer-on` for full working context. This file is the
+       `.claude/buffer/`. Run `/session-buffer:on` for full working context. This file is the
        orientation card — enough for standalone sessions, no duplication with the trunk.
        ```
    - Update `concept_map_digest` in hot to reflect any migrated entries
@@ -203,7 +191,7 @@ Run these steps when a sigma trunk was found (Steps 0a-0c succeeded).
 
 Read `.claude/buffer/handoff.json` (~200 lines). This is the only mandatory read at startup.
 
-- If `schema_version` is missing or < 2, inform the user: "Found v1 sigma trunk. Run `/buffer-off` first to migrate to v2 format."
+- If `schema_version` is missing or < 2, inform the user: "Found v1 sigma trunk. Run `/session-buffer:off` first to migrate to v2 format."
 
 ### Step 2: Git grounding
 
@@ -295,7 +283,7 @@ After the full scan completes, identify warm-layer entries that:
 If any qualify, present to the user:
 ```
 These sigma trunk entries are stable and loaded nearly every session.
-Promoting them to MEMORY.md makes them available without /buffer-on:
+Promoting them to MEMORY.md makes them available without /session-buffer:on:
 - [concept] (unchanged N sessions, loaded M times)
 
 Promote to MEMORY.md's Stable Definitions section? (max 10 lines per cycle)
@@ -307,7 +295,7 @@ If approved:
 - Cap: 10 lines promoted per cycle
 - The warm entry remains the source of truth — MEMORY.md gets a read-only copy
 - Mark warm entry: `"promoted_to_memory": "YYYY-MM-DD"`
-- `/buffer-off`'s MEMORY.md sync step keeps promoted copies current
+- `/session-buffer:off`'s MEMORY.md sync step keeps promoted copies current
 
 If declined or no candidates: continue.
 
@@ -380,7 +368,7 @@ Write ONLY `handoff.json`. Do not touch warm or cold layers.
 - **Lite**: Write `session_meta`, `active_work`, `open_threads`, `recent_decisions`, `instance_notes`, `natural_summary`. Skip `concept_map_digest`.
 - **Full**: All fields including `concept_map_digest`.
 
-### What to skip (reserved for full /buffer-off)
+### What to skip (reserved for full /session-buffer:off)
 
 - Instance notes (these are end-of-session reflections)
 - Full natural summary regeneration
@@ -396,13 +384,13 @@ Before writing, check whether the updated hot layer exceeds 200 lines. If it doe
    ```
    Hot layer is at [N] lines (limit: 200). Autosave can't write without
    pushing older entries to warm. Options:
-   - Run `/buffer-off` now (full conservation with your input)
+   - Run `/session-buffer:off` now (full conservation with your input)
    - Let me trim this save to essentials only (skip older decisions/threads)
    - Skip this autosave (sigma trunk stays at last state)
    ```
 3. Wait for user choice before proceeding
 
-The same principle applies transitively: if a full `/buffer-off` would cascade warm to cold or cold to archival, those operations already require user input (the archival questionnaire in `/buffer-off` Step 9). Autosave simply refuses to start that cascade silently.
+The same principle applies transitively: if a full `/session-buffer:off` would cascade warm to cold or cold to archival, those operations already require user input (the archival questionnaire in `/session-buffer:off` Step 9). Autosave simply refuses to start that cascade silently.
 
 **Rule:** Autosave can *update* hot. Autosave cannot *overflow* hot. Overflow = user decision.
 
@@ -422,7 +410,7 @@ When context compaction occurs (the system injects a summary of earlier conversa
 1. **PreCompact hook** fires *before* compaction — autosaves the hot layer with current commit hash and `[compacted]` marker
 2. **SessionStart:compact hook** fires *after* compaction — injects a concise sigma trunk reconstruction (session state, orientation, threads, decisions, instance notes, layer sizes) as `additionalContext`, plus a directive to run the consistency check below
 
-The post-compaction instance receives the sigma trunk context in a system-reminder and should see the "REQUIRED: Post-Compaction Consistency Check" directive. If hooks are NOT configured, this check is still **self-activating**: it fires whenever compaction is detected AND sigma trunk files exist on disk, regardless of whether `/buffer-on` was run or autosave was explicitly armed.
+The post-compaction instance receives the sigma trunk context in a system-reminder and should see the "REQUIRED: Post-Compaction Consistency Check" directive. If hooks are NOT configured, this check is still **self-activating**: it fires whenever compaction is detected AND sigma trunk files exist on disk, regardless of whether `/session-buffer:on` was run or autosave was explicitly armed.
 
 **Immediately after detecting compaction (whether via hook or self-detection), before resuming any other work:**
 
@@ -449,9 +437,9 @@ pointing to compact_hook.py.
 
 ### Autosave vs Handoff vs Post-Compaction
 
-| | Autosave | `/buffer-off` | Post-Compaction |
+| | Autosave | `/session-buffer:off` | Post-Compaction |
 |---|---|---|---|
-| **Trigger** | Automatic, at completion boundaries | Manual (`/buffer-off`) or end-of-session | Automatic, on compaction detection |
+| **Trigger** | Automatic, at completion boundaries | Manual (`/session-buffer:off`) or end-of-session | Automatic, on compaction detection |
 | **Scope** | Hot layer only | All layers (hot + warm + cold) | Hot layer only (consistency check) |
 | **Conservation** | None — prompts user if overflow detected | Full migration + size enforcement | None |
 | **Instance notes** | None | Written fresh | None |

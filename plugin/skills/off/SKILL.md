@@ -1,5 +1,5 @@
 ---
-name: buffer-off
+name: off
 description: Write session handoff to sigma trunk. Run at session end or when context is getting full.
 ---
 
@@ -9,7 +9,7 @@ description: Write session handoff to sigma trunk. Run at session end or when co
 
 ## Instance Primer
 
-You are running `/buffer-off`. Extract every decision, open thread, concept
+You are running `/session-buffer:off`. Extract every decision, open thread, concept
 mapping, and unresolved question from this session. Nothing implicit survives
 the handoff — if it matters, it's in the alpha stash or it's gone.
 
@@ -328,7 +328,7 @@ Write `handoff.json`, `handoff-warm.json`, and `handoff-cold.json` to `.claude/b
 
 - What the buffer system does for this project
 - The buffer architecture (hot/warm/cold/tower layers)
-- What `/buffer-off` and `/buffer-on` do (step summaries)
+- What `/session-buffer:off` and `/session-buffer:on` do (step summaries)
 - The concept map structure (groups, if a project skill defines them)
 - File inventory (buffer files, skill files)
 - How to configure (thresholds, concept map groups, MEMORY.md integration)
@@ -389,7 +389,7 @@ If `remote_backup` is true in the hot layer, follow the commit with `git push`.
 
 ### Step 14: Confirm
 
-Tell the user: "Handoff written and committed. The next instance can run `/buffer-on` to pick up where you left off."
+Tell the user: "Handoff written and committed. The next instance can run `/session-buffer:on` to pick up where you left off."
 
 ---
 
