@@ -5,11 +5,11 @@ Three-layer session memory for Claude Code. Preserves decisions, open threads, c
 ## Install
 
 ```
-/plugin marketplace add metafishTV/session-buffer
+/plugin marketplace add metafishTV/memory-tools
 /plugin install buffer@memory-tools-by-metafish
 ```
 
-Or add via the Claude app using the git URL: `https://github.com/metafishTV/session-buffer.git`
+Or add via the Claude app using the git URL: `https://github.com/metafishTV/memory-tools.git`
 
 ## How it works
 

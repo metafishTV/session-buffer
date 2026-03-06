@@ -9,7 +9,7 @@
   "metadata": {
     "description": "Three-layer session buffer for cross-instance continuity",
     "version": "1.0.0",
-    "homepage": "https://github.com/metafishTV/session-buffer",
+    "homepage": "https://github.com/metafishTV/memory-tools",
     "license": "MIT",
     "totalPlugins": 1,
     "lastUpdated": "2026-03-06"
