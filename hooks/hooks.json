@@ -1,0 +1,31 @@
+{
+  "hooks": {
+    "PreCompact": [
+      {
+        "matcher": "manual",
+        "hooks": [{
+          "type": "command",
+          "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/run_python\" \"${CLAUDE_PLUGIN_ROOT}/scripts/compact_hook.py\" pre-compact",
+          "timeout": 30
+        }]
+      },
+      {
+        "matcher": "auto",
+        "hooks": [{
+          "type": "command",
+          "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/run_python\" \"${CLAUDE_PLUGIN_ROOT}/scripts/compact_hook.py\" pre-compact",
+          "timeout": 30
+        }]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [{
+          "type": "command",
+          "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/run_python\" \"${CLAUDE_PLUGIN_ROOT}/scripts/compact_hook.py\" post-compact",
+          "timeout": 30
+        }]
+      }
+    ]
+  }
+}
