@@ -2,8 +2,8 @@
 
 Session continuity for multi-instance projects. Two operations:
 
-- **`/session-buffer:on`** — Reconstruct context from previous session's handoff buffer. Run at session start.
-- **`/session-buffer:off`** — Write structured handoff buffer for the next instance. Run at session end.
+- **`/buffer:on`** — Reconstruct context from previous session's handoff buffer. Run at session start.
+- **`/buffer:off`** — Write structured handoff buffer for the next instance. Run at session end.
 
 The **alpha stash** is the ephemeral session intake — computed, merged into the trunk, then gone. The **sigma trunk** is the persistent knowledge: hot (always loaded), warm (selectively loaded), cold (on-demand only).
 
@@ -15,7 +15,7 @@ Both operations reference the architecture defined here. Each checks for a proje
 
 Sigma trunk (hot / warm / cold) with bounded sizes and downward migration:
 
-| Layer | File | Max Lines | Loaded At `/session-buffer:on` |
+| Layer | File | Max Lines | Loaded At `/buffer:on` |
 |-------|------|-----------|------------------------|
 | **Hot** | `handoff.json` | 200 | Always |
 | **Warm** | `handoff-warm.json` | 500 | Selectively (via pointers) |
@@ -24,7 +24,7 @@ Sigma trunk (hot / warm / cold) with bounded sizes and downward migration:
 
 All files live in `.claude/buffer/`.
 
-Content migrates downward (hot -> warm -> cold -> tower) when bounds are exceeded. `/session-buffer:on` reads upward selectively (hot always, warm/cold only when pointed to). The system conserves attention by never auto-loading more than ~200 lines.
+Content migrates downward (hot -> warm -> cold -> tower) when bounds are exceeded. `/buffer:on` reads upward selectively (hot always, warm/cold only when pointed to). The system conserves attention by never auto-loading more than ~200 lines.
 
 ### Pointer-Index System
 
@@ -57,9 +57,9 @@ Warm-layer entries may contain `"see_also"` arrays pointing to cold:
 
 ## Buffer Modes
 
-The buffer system operates in one of two modes, chosen during first-run setup (Step 0d in `/session-buffer:on`). The mode determines which schema fields, layers, and processes are active.
+The buffer system operates in one of two modes, chosen during first-run setup (Step 0d in `/buffer:on`). The mode determines which schema fields, layers, and processes are active.
 
-| Mode | Purpose | Hot Layer | Warm/Cold | `/session-buffer:off` Steps |
+| Mode | Purpose | Hot Layer | Warm/Cold | `/buffer:off` Steps |
 |------|---------|-----------|-----------|---------------------|
 | **Lite** | Active work + natural summary | `session_meta`, `natural_summary`, `memory_config`, `active_work`, `open_threads`, `recent_decisions`, `instance_notes` | Session summaries, `decisions_archive` | Subset (no concept map, no consolidation) |
 | **Full** | Complete research infrastructure | Full schema | Full schema | All |
@@ -189,7 +189,7 @@ The complete system. All schemas, all processes, all consolidation protocols as 
 
 > **Mode gate: Full only.** Lite mode skips this protocol entirely.
 
-Triggers at `full_scan_threshold` intervals during `/session-buffer:off`. Purpose: increase warm-layer density without losing meaning. This protocol supplements the routine warm consolidation (Step 6b of `/session-buffer:off`) that runs every session.
+Triggers at `full_scan_threshold` intervals during `/buffer:off`. Purpose: increase warm-layer density without losing meaning. This protocol supplements the routine warm consolidation (Step 6b of `/buffer:off`) that runs every session.
 
 ### Provenance Classification
 
@@ -336,7 +336,7 @@ The hot layer is **referential, not explanatory**. If a concept needs explaining
 | `concept_map_digest.recent_changes` | ≤15 entries | Full only. Oldest roll off when exceeded. |
 | `natural_summary` | ≤3 sentences | Plain language. No jargon, no codex. |
 
-**Enforcement**: At `/session-buffer:off` Step 10, check each field against these limits before writing. If any field exceeds its limit, compress in place — do not silently drop content. Use the warm concept_map as a glossary: replace multi-word explanations with established terms.
+**Enforcement**: At `/buffer:off` Step 10, check each field against these limits before writing. If any field exceeds its limit, compress in place — do not silently drop content. Use the warm concept_map as a glossary: replace multi-word explanations with established terms.
 
 **Principle**: Hot = what the next instance needs in the first 30 seconds. Everything else lives in warm or cold.
 

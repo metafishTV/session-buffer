@@ -1,4 +1,4 @@
-# session-buffer
+# buffer
 
 Three-layer session memory for Claude Code. Preserves decisions, open threads, concept maps, and working context across sessions.
 
@@ -15,7 +15,7 @@ Each session, you compute the **alpha stash** (what's new since the last handoff
 ## Install
 
 ```
-/plugin install session-buffer
+/plugin install buffer
 ```
 
 Requires Python 3.10+ on PATH (`python3` or `python`). Scripts use stdlib only -- no pip installs.
@@ -24,7 +24,7 @@ Requires Python 3.10+ on PATH (`python3` or `python`). Scripts use stdlib only -
 
 **End of session:**
 ```
-/session-buffer:off
+/buffer:off
 ```
 Choose your handoff mode:
 - **Totalize** -- Complete handoff (concept maps, consolidation, full commit)
@@ -33,13 +33,13 @@ Choose your handoff mode:
 
 **Start of session:**
 ```
-/session-buffer:on
+/buffer:on
 ```
 Select your project from the list. Context reconstructed automatically.
 
 ## Scope: Full vs Lite
 
-First time you run `/session-buffer:off`, you choose your scope:
+First time you run `/buffer:off`, you choose your scope:
 
 | | Full | Lite |
 |---|---|---|
@@ -56,7 +56,7 @@ Upgrade from Lite to Full anytime. No data loss.
 
 ## Multi-project support
 
-The plugin maintains a global project registry at `~/.claude/buffer/projects.json`. When you run `/session-buffer:on`, it presents your projects:
+The plugin maintains a global project registry at `~/.claude/buffer/projects.json`. When you run `/buffer:on`, it presents your projects:
 
 - Resume the most recent project
 - Switch to a different project
@@ -101,7 +101,7 @@ Use overrides to define:
 ## Plugin contents
 
 ```
-session-buffer/
+buffer/
   skills/
     buffer/SKILL.md             Dispatcher (routes to on/off)
     on/SKILL.md                 Rehydration skill (project selector)

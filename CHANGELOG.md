@@ -1,11 +1,11 @@
 # Changelog
 
-All notable changes to session-buffer are documented here.
+All notable changes to buffer are documented here.
 
 ## [0.1.4] - 2026-03-06
 
 ### Fixed
-- Stale command references in architecture.md (7 instances of `/buffer:on`/`off` → `/session-buffer:on`/`off`)
+- Stale command references in architecture.md (7 instances of `/buffer:on`/`off` → `/buffer:on`/`off`)
 - Stale skill directory names in README.md (`buffer-on/` → `on/`, `buffer-off/` → `off/`)
 - Stale cross-reference in on skill ("see buffer-off" → "see off skill")
 - Removed orphan YAML frontmatter from architecture.md (was a docs file, not a skill)
@@ -41,7 +41,7 @@ All notable changes to session-buffer are documented here.
 ## [0.1.1] - 2026-03-06
 
 ### Changed
-- Skills renamed: `buffer-on` → `on`, `buffer-off` → `off` (invocation: `session-buffer:on`, `session-buffer:off`)
+- Skills renamed: `buffer-on` → `on`, `buffer-off` → `off` (invocation: `buffer:on`, `buffer:off`)
 
 ### Fixed
 - Project selector popup (Step 0c) now enforced as MANDATORY via AskUserQuestion

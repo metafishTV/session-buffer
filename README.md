@@ -1,4 +1,4 @@
-# session-buffer
+# buffer
 
 Three-layer session memory for Claude Code. Preserves decisions, open threads, concept maps, and working context across sessions.
 
@@ -6,7 +6,7 @@ Three-layer session memory for Claude Code. Preserves decisions, open threads, c
 
 ```
 /plugin marketplace add metafishTV/session-buffer
-/plugin install session-buffer@session-buffer-marketplace
+/plugin install buffer@memory-tools-by-metafish
 ```
 
 Or add via the Claude app using the git URL: `https://github.com/metafishTV/session-buffer.git`
@@ -25,7 +25,7 @@ Each session, you compute the **alpha stash** (what's new since the last handoff
 
 **End of session:**
 ```
-/session-buffer:off
+/buffer:off
 ```
 Choose your handoff mode:
 - **Totalize** -- Complete handoff (concept maps, consolidation, full commit)
@@ -34,13 +34,13 @@ Choose your handoff mode:
 
 **Start of session:**
 ```
-/session-buffer:on
+/buffer:on
 ```
 Select your project from the list. Context reconstructed automatically.
 
 ## Scope: Full vs Lite
 
-First time you run `/session-buffer:off`, you choose your scope:
+First time you run `/buffer:off`, you choose your scope:
 
 | | Full | Lite |
 |---|---|---|

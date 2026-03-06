@@ -9,7 +9,7 @@ description: Write session handoff to sigma trunk. Run at session end or when co
 
 ## Instance Primer
 
-You are running `/session-buffer:off`. Extract every decision, open thread, concept
+You are running `/buffer:off`. Extract every decision, open thread, concept
 mapping, and unresolved question from this session. Nothing implicit survives
 the handoff — if it matters, it's in the alpha stash or it's gone.
 
@@ -307,7 +307,7 @@ Write `handoff.json`, `handoff-warm.json`, and `handoff-cold.json` to `.claude/b
 
 - What the buffer system does for this project
 - The buffer architecture (hot/warm/cold/tower layers)
-- What `/session-buffer:off` and `/session-buffer:on` do (step summaries)
+- What `/buffer:off` and `/buffer:on` do (step summaries)
 - The concept map structure (groups, if a project skill defines them)
 - File inventory (buffer files, skill files)
 - How to configure (thresholds, concept map groups, MEMORY.md integration)
@@ -374,7 +374,7 @@ Run `validate --buffer-dir .claude/buffer/` to get layer sizes, then tell the us
 Handoff written and committed.
 Hot: [N]/200 | Warm: [N]/[max] | Cold: [N]/500
 [N] decisions, [N] threads, [N] concept map changes captured.
-The next instance can run /session-buffer:on to pick up where you left off.
+The next instance can run /buffer:on to pick up where you left off.
 ```
 
 ---

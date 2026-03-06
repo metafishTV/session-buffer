@@ -12,6 +12,6 @@ if %ERRORLEVEL% equ 0 (
     python3 %*
     exit /b %ERRORLEVEL%
 )
-echo session-buffer: Python 3.10+ required but not found on PATH >&2
+echo buffer: Python 3.10+ required but not found on PATH >&2
 echo Install Python from https://python.org or add python3 to PATH >&2
 exit /b 1

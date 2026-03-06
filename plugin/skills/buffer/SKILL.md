@@ -10,13 +10,13 @@ This skill routes to the correct operational skill. **Do not act on buffer data 
 ## Routing
 
 If ARGUMENTS contains "on":
-→ Invoke the `session-buffer:on` skill via the Skill tool. Follow its instructions completely.
+→ Invoke the `buffer:on` skill via the Skill tool. Follow its instructions completely.
 
 If ARGUMENTS contains "off":
-→ Invoke the `session-buffer:off` skill via the Skill tool. Follow its instructions completely.
+→ Invoke the `buffer:off` skill via the Skill tool. Follow its instructions completely.
 
 If no argument or unrecognized argument:
-→ Ask the user: "Start session (`/session-buffer:on`) or save handoff (`/session-buffer:off`)?"
+→ Ask the user: "Start session (`/buffer:on`) or save handoff (`/buffer:off`)?"
 
 ## Rules
 
