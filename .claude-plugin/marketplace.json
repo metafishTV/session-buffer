@@ -9,7 +9,10 @@
       "name": "session-buffer",
       "description": "Three-layer session buffer for cross-instance continuity. Preserves decisions, open threads, concept maps, and working context across Claude Code sessions.",
       "version": "0.1.0",
-      "source": "./"
+      "source": "./",
+      "author": {
+        "name": "metafishTV"
+      }
     }
   ]
 }
