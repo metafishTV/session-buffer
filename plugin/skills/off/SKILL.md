@@ -194,8 +194,12 @@ Identify unresolved questions, deferred items, and next steps. Write each to `op
 
 1. Run `alpha-read --buffer-dir .claude/buffer/` to get the index summary
 2. For each decision from Step 4, check if it touches a concept mapping:
-   - If a mapping **changed**: update the alpha referent file, add to hot `concept_map_digest.recent_changes` with status `CHANGED`
-   - If a **new concept** was introduced: write a new referent file to the appropriate alpha source folder, assign a new `w:N` ID (via `next-id --layer warm`), update `alpha/index.json`, add to digest as `NEW`
+   - If a mapping **changed**: update the alpha referent file directly, add to hot `concept_map_digest.recent_changes` with status `CHANGED`
+   - If a **new concept** was introduced: use `alpha-write` to create it:
+     ```bash
+     echo '{"type":"cross_source","source_folder":"[kebab-case-source]","key":"Source:ConceptName","maps_to":"[mapping]","ref":"","suggest":null}' | scripts/buffer_manager.py alpha-write --buffer-dir .claude/buffer/
+     ```
+     Read the output JSON to get the assigned ID. Add to digest as `NEW`.
    - If a **suggestion was confirmed** by the user: update the referent file's `suggest` to `equiv`, log as `PROMOTED`
    - If a **foundational concept** was questioned: log as `NEEDS_USER_INPUT`, do NOT auto-change
 
@@ -218,7 +222,11 @@ Identify unresolved questions, deferred items, and next steps. Write each to `op
 For alpha entries the current instance **created or meaningfully modified this session**:
 
 - **Vocabulary compression**: Replace multi-word descriptions with established terms
-- **Same-concept merge**: If two referent files describe the same structural relationship, merge into one file and update `alpha/index.json` (remove absorbed entry, update merged entry)
+- **Same-concept merge**: If two referent files describe the same structural relationship, merge into one file and delete the absorbed entry via `alpha-delete`:
+     ```bash
+     scripts/buffer_manager.py alpha-delete --buffer-dir .claude/buffer/ --id w:218
+     ```
+     Then update the surviving entry's `.md` file with merged content.
 - **Description tightening**: Shorten explanatory prose to referential shorthand
 
 Alpha files are self-contained and small (30-80 lines each), making targeted consolidation natural — edit a single file, update the index. No need to parse/rewrite large JSON arrays.

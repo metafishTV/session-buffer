@@ -41,6 +41,8 @@ needed to orient.
 - `alpha-query --buffer-dir .claude/buffer/ --source Sartre` — List all entries from a source.
 - `alpha-query --buffer-dir .claude/buffer/ --concept totalization` — Search by concept name.
 - `alpha-validate --buffer-dir .claude/buffer/` — Check alpha bin integrity (index vs files on disk).
+- `alpha-write --buffer-dir .claude/buffer/` — Write new alpha entries (JSON on stdin → `.md` files + `index.json` update). Used by `/distill` and `/buffer:off`.
+- `alpha-delete --buffer-dir .claude/buffer/ --id w:N cw:N` — Remove alpha entries (files + index cleanup). Used by `/buffer:off` consolidation.
 
 **Manual steps**: git grounding (2), full-scan check (5), instance notes presentation (6), MEMORY.md (7), autosave arming (8).
 

@@ -16,6 +16,8 @@ Commands:
   next-id        — Get next sequential ID for a layer (scans alpha too)
   alpha-read     — Read alpha bin index, output summary
   alpha-query    — Query alpha by ID, source, or concept (retrieves referent files)
+  alpha-write    — Write entries to alpha bin (stdin JSON, auto-ID, index update)
+  alpha-delete   — Delete entries from alpha bin (removes files + index)
   alpha-validate — Check alpha bin integrity (index vs files on disk)
 
 Usage: run_python buffer_manager.py <command> [options]
@@ -1311,7 +1313,185 @@ def cmd_handoff(args):
 
 
 # ---------------------------------------------------------------------------
-# Alpha bin helpers
+# Alpha bin: markdown generators + helpers
+# ---------------------------------------------------------------------------
+
+def pad_id(entry_id):
+    """Pad ID for filename: w:65 -> w065, cw:7 -> cw007."""
+    parts = entry_id.split(':')
+    if len(parts) == 2:
+        try:
+            num = int(parts[1])
+            prefix = parts[0]
+            return f"{prefix}{num:03d}"
+        except ValueError:
+            pass
+    return entry_id.replace(':', '')
+
+
+def make_cross_source_md(entry, source_label=None):
+    """Generate canonical markdown for a cross_source referent file."""
+    eid = entry.get('id', '?')
+    key = entry.get('key') or entry.get('source') or '?'
+    maps_to = entry.get('maps_to', '')
+    ref = entry.get('ref', '')
+    suggest = entry.get('suggest')
+
+    lines = [f"# {eid} -- {key}"]
+    if source_label:
+        lines.append(f"**Source**: {source_label} | **ID**: {eid} | **Type**: cross_source")
+    else:
+        lines.append(f"**ID**: {eid} | **Type**: cross_source")
+    lines.append("")
+    lines.append("## Mapping")
+    lines.append(f"**Key**: {key}")
+    lines.append(f"**Maps to**: {maps_to}")
+    if ref:
+        lines.append(f"**Ref**: {ref}")
+    if suggest is not None:
+        lines.append(f"**Suggest**: {json.dumps(suggest)}")
+    lines.append("")
+
+    return '\n'.join(lines)
+
+
+def make_convergence_web_md(entry):
+    """Generate canonical markdown for a convergence_web referent file."""
+    eid = entry.get('id', '?')
+    thesis = entry.get('thesis', {})
+    athesis = entry.get('athesis', {})
+    synthesis = entry.get('synthesis', '')
+    metathesis = entry.get('metathesis', '')
+
+    t_label = thesis.get('label', '?')
+    a_label = athesis.get('label', '?')
+    t_ref = thesis.get('ref', '?')
+    a_ref = athesis.get('ref', '?')
+
+    lines = [f"# {eid} -- {t_label} x {a_label}"]
+    lines.append(f"**ID**: {eid} | **Type**: convergence_web")
+    lines.append("")
+    lines.append("## Tetradic Structure")
+    lines.append(f"**Thesis**: {t_ref} ({t_label})")
+    lines.append(f"**Athesis**: {a_ref} ({a_label})")
+    lines.append(f"**Synthesis**: {synthesis}")
+    lines.append(f"**Metathesis**: {metathesis}")
+    lines.append("")
+
+    return '\n'.join(lines)
+
+
+def alpha_update_index(index, new_id, entry_type, source_folder, concept_key, filename):
+    """Update all index structures for a new alpha entry.
+
+    Handles: entries, sources, concept_index, source_index, summary counts.
+    """
+    # entries
+    index.setdefault('entries', {})[new_id] = {
+        "source": source_folder,
+        "file": filename,
+        "concept": concept_key,
+        "type": entry_type
+    }
+
+    # sources
+    sources = index.setdefault('sources', {})
+    if source_folder not in sources:
+        sources[source_folder] = {
+            "folder": source_folder,
+            "cross_source_ids": [],
+            "convergence_web_ids": [],
+            "entry_count": 0
+        }
+    src = sources[source_folder]
+    id_list_key = 'convergence_web_ids' if entry_type == 'convergence_web' else 'cross_source_ids'
+    if new_id not in src.get(id_list_key, []):
+        src.setdefault(id_list_key, []).append(new_id)
+    src['entry_count'] = len(src.get('cross_source_ids', [])) + len(src.get('convergence_web_ids', []))
+
+    # concept_index
+    if concept_key and concept_key != '?':
+        concept_name = concept_key.split(':')[1].strip().lower() if ':' in concept_key else concept_key.strip().lower()
+        if concept_name:
+            index.setdefault('concept_index', {}).setdefault(concept_name, []).append(new_id)
+
+    # source_index
+    if concept_key and ':' in concept_key:
+        prefix = concept_key.split(':')[0].strip()
+        if prefix and not prefix.startswith('_'):
+            index.setdefault('source_index', {}).setdefault(prefix, []).append(new_id)
+
+    # summary counts
+    summary = index.setdefault('summary', {
+        'total_cross_source': 0, 'total_convergence_web': 0,
+        'total_framework': 0, 'total_sources': 0
+    })
+    if entry_type == 'convergence_web':
+        summary['total_convergence_web'] = summary.get('total_convergence_web', 0) + 1
+    else:
+        summary['total_cross_source'] = summary.get('total_cross_source', 0) + 1
+    summary['total_sources'] = len(sources)
+
+
+def alpha_remove_from_index(index, entry_id):
+    """Remove an entry from all index structures.
+
+    Returns the removed entry info dict, or None if not found.
+    """
+    entries = index.get('entries', {})
+    entry_info = entries.pop(entry_id, None)
+    if not entry_info:
+        return None
+
+    source_folder = entry_info.get('source', '')
+    entry_type = entry_info.get('type', 'cross_source')
+    concept_key = entry_info.get('concept', '')
+
+    # sources
+    src = index.get('sources', {}).get(source_folder)
+    if src:
+        id_list_key = 'convergence_web_ids' if entry_type == 'convergence_web' else 'cross_source_ids'
+        ids = src.get(id_list_key, [])
+        if entry_id in ids:
+            ids.remove(entry_id)
+        src['entry_count'] = len(src.get('cross_source_ids', [])) + len(src.get('convergence_web_ids', []))
+        # Remove empty source folders from index
+        if src['entry_count'] == 0:
+            index['sources'].pop(source_folder, None)
+
+    # concept_index
+    if concept_key and concept_key != '?':
+        concept_name = concept_key.split(':')[1].strip().lower() if ':' in concept_key else concept_key.strip().lower()
+        if concept_name:
+            clist = index.get('concept_index', {}).get(concept_name, [])
+            if entry_id in clist:
+                clist.remove(entry_id)
+            if not clist:
+                index.get('concept_index', {}).pop(concept_name, None)
+
+    # source_index
+    if concept_key and ':' in concept_key:
+        prefix = concept_key.split(':')[0].strip()
+        if prefix and not prefix.startswith('_'):
+            slist = index.get('source_index', {}).get(prefix, [])
+            if entry_id in slist:
+                slist.remove(entry_id)
+            if not slist:
+                index.get('source_index', {}).pop(prefix, None)
+
+    # summary counts
+    summary = index.get('summary', {})
+    if entry_type == 'convergence_web':
+        summary['total_convergence_web'] = max(0, summary.get('total_convergence_web', 0) - 1)
+    else:
+        summary['total_cross_source'] = max(0, summary.get('total_cross_source', 0) - 1)
+    summary['total_sources'] = len(index.get('sources', {}))
+
+    return entry_info
+
+
+# ---------------------------------------------------------------------------
+# Alpha bin: path + read helpers
 # ---------------------------------------------------------------------------
 
 def alpha_index_path(buf_dir):
@@ -1578,6 +1758,245 @@ def cmd_alpha_validate(args):
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: alpha-write
+# ---------------------------------------------------------------------------
+
+def cmd_alpha_write(args):
+    """Write one or more entries to the alpha bin.
+
+    Reads JSON from stdin (single object or array of objects).
+    For each entry: assigns next available ID, writes canonical .md file,
+    updates alpha/index.json atomically.
+
+    Entry types:
+      cross_source:    requires type, source_folder, key, maps_to
+      convergence_web: requires type, source_folder, thesis, athesis, synthesis, metathesis
+
+    Optional fields: ref, suggest (cross_source), id override via --id flag.
+    """
+    buf_dir = Path(args.buffer_dir)
+    alpha_dir = buf_dir / 'alpha'
+    index_path = alpha_dir / 'index.json'
+    dry_run = getattr(args, 'dry_run', False)
+
+    # Read alpha index (must exist)
+    if not index_path.exists():
+        print(json.dumps({
+            "status": "error",
+            "message": "Alpha bin not found. Run migration first."
+        }))
+        sys.exit(1)
+
+    index = read_json(index_path)
+
+    # Read entries from stdin
+    raw = sys.stdin.read().strip()
+    if not raw:
+        print(json.dumps({"status": "error", "message": "No input on stdin."}))
+        sys.exit(1)
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        print(json.dumps({"status": "error", "message": f"Invalid JSON: {e}"}))
+        sys.exit(1)
+
+    entries = data if isinstance(data, list) else [data]
+    if not entries:
+        print(json.dumps({"status": "error", "message": "Empty entry list."}))
+        sys.exit(1)
+
+    # Track next IDs from current index state
+    next_w = alpha_max_id(index, 'w:') + 1
+    next_cw = alpha_max_id(index, 'cw:') + 1
+
+    # Also check warm layer for max IDs to prevent collisions
+    warm = read_json(buf_dir / 'handoff-warm.json')
+    for e in collect_all_entries(warm, 'w:'):
+        m = re.match(r'^w:(\d+)$', e.get('id', ''))
+        if m:
+            next_w = max(next_w, int(m.group(1)) + 1)
+    for e in warm.get('convergence_web', {}).get('entries', []):
+        m = re.match(r'^cw:(\d+)$', e.get('id', ''))
+        if m:
+            next_cw = max(next_cw, int(m.group(1)) + 1)
+
+    results = []
+    errors = []
+
+    for i, entry in enumerate(entries):
+        entry_type = entry.get('type', '')
+        source_folder = entry.get('source_folder', '')
+
+        if not source_folder:
+            errors.append(f"Entry {i}: missing 'source_folder'")
+            continue
+
+        if entry_type == 'cross_source':
+            key = entry.get('key', '')
+            if not key:
+                errors.append(f"Entry {i}: cross_source requires 'key'")
+                continue
+
+            # Assign ID
+            if args.id_override and i == 0:
+                new_id = args.id_override
+            else:
+                new_id = f"w:{next_w}"
+                next_w += 1
+
+            # Build entry for md generator
+            md_entry = {
+                'id': new_id,
+                'key': key,
+                'maps_to': entry.get('maps_to', ''),
+                'ref': entry.get('ref', ''),
+                'suggest': entry.get('suggest'),
+            }
+            md_content = make_cross_source_md(md_entry, source_label=source_folder)
+            concept_key = key
+
+        elif entry_type == 'convergence_web':
+            thesis = entry.get('thesis', {})
+            athesis = entry.get('athesis', {})
+            if not thesis.get('label') or not athesis.get('label'):
+                errors.append(f"Entry {i}: convergence_web requires thesis.label and athesis.label")
+                continue
+
+            # Assign ID
+            if args.id_override and i == 0:
+                new_id = args.id_override
+            else:
+                new_id = f"cw:{next_cw}"
+                next_cw += 1
+
+            # Build entry for md generator
+            md_entry = {
+                'id': new_id,
+                'thesis': thesis,
+                'athesis': athesis,
+                'synthesis': entry.get('synthesis', ''),
+                'metathesis': entry.get('metathesis', ''),
+            }
+            md_content = make_convergence_web_md(md_entry)
+            concept_key = f"{thesis.get('label', '?')} x {athesis.get('label', '?')}"
+
+        else:
+            errors.append(f"Entry {i}: unknown type '{entry_type}'. Use: cross_source, convergence_web")
+            continue
+
+        # Compute file path
+        padded = pad_id(new_id)
+        filename = f"{source_folder}/{padded}.md"
+        file_path = alpha_dir / source_folder / f"{padded}.md"
+
+        if not dry_run:
+            # Create source folder if needed
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+            # Write .md file
+            file_path.write_text(md_content, encoding='utf-8')
+
+        # Update index
+        alpha_update_index(index, new_id, entry_type, source_folder, concept_key, filename)
+
+        results.append({
+            "id": new_id,
+            "file": filename,
+            "source_folder": source_folder,
+            "type": entry_type
+        })
+
+    # Update last_updated timestamp
+    index['last_updated'] = str(date.today())
+
+    # Write updated index
+    if not dry_run and results:
+        write_json(index_path, index)
+
+    output = {
+        "status": "ok" if not errors else "partial" if results else "error",
+        "entries_written": results,
+        "index_updated": bool(results) and not dry_run,
+        "dry_run": dry_run,
+    }
+    if errors:
+        output["errors"] = errors
+    print(json.dumps(output, indent=2))
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: alpha-delete
+# ---------------------------------------------------------------------------
+
+def cmd_alpha_delete(args):
+    """Delete one or more entries from the alpha bin.
+
+    Removes .md files from disk and updates alpha/index.json.
+    Used during consolidation (merging absorbed entries).
+    """
+    buf_dir = Path(args.buffer_dir)
+    alpha_dir = buf_dir / 'alpha'
+    index_path = alpha_dir / 'index.json'
+
+    if not index_path.exists():
+        print(json.dumps({
+            "status": "error",
+            "message": "Alpha bin not found."
+        }))
+        sys.exit(1)
+
+    index = read_json(index_path)
+    ids_to_delete = args.id or []
+
+    if not ids_to_delete:
+        print(json.dumps({"status": "error", "message": "No --id specified."}))
+        sys.exit(1)
+
+    deleted = []
+    not_found = []
+    file_errors = []
+
+    for eid in ids_to_delete:
+        entry_info = index.get('entries', {}).get(eid)
+        if not entry_info:
+            not_found.append(eid)
+            continue
+
+        # Delete file from disk
+        file_rel = entry_info.get('file', '')
+        file_path = alpha_dir / file_rel
+        if file_path.exists():
+            try:
+                file_path.unlink()
+                # Remove empty parent directory
+                parent = file_path.parent
+                if parent.exists() and not any(parent.iterdir()):
+                    parent.rmdir()
+            except OSError as e:
+                file_errors.append(f"{eid}: could not delete {file_rel}: {e}")
+                continue
+
+        # Remove from index
+        alpha_remove_from_index(index, eid)
+        deleted.append(eid)
+
+    # Write updated index
+    if deleted:
+        index['last_updated'] = str(date.today())
+        write_json(index_path, index)
+
+    output = {
+        "status": "ok" if not (not_found or file_errors) else "partial",
+        "deleted": deleted,
+        "not_found": not_found,
+        "index_updated": bool(deleted)
+    }
+    if file_errors:
+        output["file_errors"] = file_errors
+    print(json.dumps(output, indent=2))
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -1666,6 +2085,24 @@ def main():
     p_alpha_query.add_argument('--concept', default=None,
                                help='Search by concept name (case-insensitive partial match)')
     p_alpha_query.set_defaults(func=cmd_alpha_query)
+
+    # --- alpha-write ---
+    p_alpha_write = subparsers.add_parser('alpha-write',
+        help='Write entries to alpha bin (reads JSON from stdin)')
+    p_alpha_write.add_argument('--buffer-dir', required=True, help='Path to buffer directory')
+    p_alpha_write.add_argument('--dry-run', action='store_true',
+                               help='Validate and show what would be written without writing')
+    p_alpha_write.add_argument('--id', dest='id_override', default=None,
+                               help='Override auto-assigned ID (for first entry only)')
+    p_alpha_write.set_defaults(func=cmd_alpha_write)
+
+    # --- alpha-delete ---
+    p_alpha_del = subparsers.add_parser('alpha-delete',
+        help='Delete entries from alpha bin (removes files + updates index)')
+    p_alpha_del.add_argument('--buffer-dir', required=True, help='Path to buffer directory')
+    p_alpha_del.add_argument('--id', nargs='+', required=True,
+                             help='Entry IDs to delete (e.g., w:218 cw:83)')
+    p_alpha_del.set_defaults(func=cmd_alpha_delete)
 
     # --- alpha-validate ---
     p_alpha_val = subparsers.add_parser('alpha-validate',

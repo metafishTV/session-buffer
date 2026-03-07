@@ -54,7 +54,10 @@ The alpha bin separates **reference memory** (static, query-on-demand, no decay)
 - **Self-healing** — `rebuild_index` can reconstruct `index.json` from files on disk if the index is lost
 - **Schema normalization** — entries are normalized during migration/creation to handle variant schemas (key vs source field, missing attribution, etc.)
 
-**Commands:** `alpha-read` (summary), `alpha-query` (retrieve by ID/source/concept), `alpha-validate` (integrity check).
+**Commands:**
+- **Read**: `alpha-read` (summary), `alpha-query` (retrieve by ID/source/concept), `alpha-validate` (integrity check).
+- **Write**: `alpha-write` (JSON on stdin → writes `.md` files + updates `index.json` atomically; supports `--dry-run`, `--id` override, batch arrays).
+- **Delete**: `alpha-delete --id w:N cw:N` (removes files + all index entries; cleans up empty folders).
 
 **Backward compatibility:** Projects without `alpha/` work exactly as before. All alpha-aware code checks for alpha existence first and falls back to warm-layer operations.
 
@@ -484,6 +487,24 @@ Tower numbers are zero-padded to 3 digits (e.g., `001`, `002`). Determine the ne
 ## Script References
 
 Buffer management is handled by the plugin's `scripts/buffer_manager.py`. Compaction is handled by `scripts/compact_hook.py`. Both live alongside this architecture document in the plugin directory tree.
+
+### buffer_manager.py Commands
+
+| Command | Purpose | Key Flags |
+|---------|---------|-----------|
+| `read` | Parse hot layer, resolve warm pointers | `--buffer-dir`, `--warm-max` |
+| `update` | Merge changes into hot layer | `--buffer-dir`, `--input` |
+| `migrate` | Enforce layer size bounds | `--buffer-dir`, `--warm-max` |
+| `validate` | Check layer sizes, schema, alpha integrity | `--buffer-dir` |
+| `sync` | Sync MEMORY.md with buffer state | `--buffer-dir`, `--memory-path`, `--project-name` |
+| `handoff` | Chains update + migrate + sync | `--buffer-dir`, `--input`, `--warm-max`, `--memory-path`, `--project-name` |
+| `next-id` | Get next sequential ID | `--buffer-dir`, `--layer` |
+| `alpha-read` | Read alpha bin index summary | `--buffer-dir` |
+| `alpha-query` | Retrieve referents by ID/source/concept | `--buffer-dir`, `--id`, `--source`, `--concept` |
+| `alpha-validate` | Check alpha index vs files on disk | `--buffer-dir` |
+| `alpha-write` | Write new alpha entries (JSON on stdin) | `--buffer-dir`, `--dry-run`, `--id` |
+| `alpha-delete` | Remove alpha entries and files | `--buffer-dir`, `--id` |
+| `rebuild_index` | Reconstruct index.json from files on disk | `--buffer-dir` |
 
 ---
 
