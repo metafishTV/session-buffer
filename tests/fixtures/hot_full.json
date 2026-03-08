@@ -1,0 +1,80 @@
+{
+  "schema_version": 2,
+  "buffer_mode": "project",
+  "scope": "full",
+  "remote_backup": false,
+  "sessions_since_full_scan": 2,
+  "full_scan_threshold": 5,
+  "session_meta": {
+    "date": "2026-03-08",
+    "commit": "def5678",
+    "branch": "main",
+    "files_modified": ["test_buffer.py", "conftest.py"],
+    "tests": "90 passed, 0 failed"
+  },
+  "orientation": {
+    "core_insight": "Session memory plugin for Claude Code.",
+    "practical_warning": "Do NOT delete tower files without asking."
+  },
+  "active_work": {
+    "current_phase": "v1.0 polish",
+    "completed_this_session": ["CHANGELOG", "README", "userconfig"],
+    "in_progress": "pytest suite",
+    "blocked_by": null,
+    "next_action": "Run CI"
+  },
+  "open_threads": [
+    {
+      "thread": "Buffer manager tightening",
+      "status": "resolved",
+      "see": ["w:10"]
+    },
+    {
+      "thread": "CI pipeline setup",
+      "status": "noted",
+      "see": ["w:11"]
+    }
+  ],
+  "recent_decisions": [
+    {
+      "what": "Plugin architecture",
+      "chose": "Yin-yang split",
+      "why": "Separation of concerns",
+      "session": "2026-03-07",
+      "see": ["w:10"]
+    },
+    {
+      "what": "Test framework",
+      "chose": "pytest",
+      "why": "Better fixtures and tmp_path",
+      "session": "2026-03-08"
+    }
+  ],
+  "instance_notes": {
+    "from": "instance-3",
+    "to": "instance-4",
+    "remarks": ["All v1.0 changes committed", "buffer_manager tightened"],
+    "open_questions": ["Coverage target?"]
+  },
+  "concept_map_digest": {
+    "_meta": {
+      "total_entries": 5,
+      "last_validated": "2026-03-08"
+    },
+    "recent_changes": [
+      {"id": "w:10", "key": "plugin-arch", "status": "NEW"},
+      {"id": "w:11", "key": "ci-pipeline", "status": "NEW"}
+    ],
+    "flagged": []
+  },
+  "convergence_web_digest": {
+    "_meta": {"total_entries": 2},
+    "clusters": ["buffer-distill"],
+    "flagged": []
+  },
+  "memory_config": {
+    "integration": "full",
+    "path": "/home/user/.claude/projects/test/memory/MEMORY.md"
+  },
+  "natural_summary": "Completed v1.0 polish. CHANGELOG, README, userconfig, and buffer_manager tightening done. Now setting up automated pytest suite."
+}

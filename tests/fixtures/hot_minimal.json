@@ -1,0 +1,44 @@
+{
+  "schema_version": 2,
+  "buffer_mode": "lite",
+  "scope": "lite",
+  "remote_backup": false,
+  "session_meta": {
+    "date": "2026-03-08",
+    "commit": "abc1234",
+    "branch": "main"
+  },
+  "active_work": {
+    "current_phase": "Testing phase",
+    "completed_this_session": ["item1"],
+    "in_progress": "Writing tests",
+    "blocked_by": null,
+    "next_action": "Run pytest"
+  },
+  "open_threads": [
+    {
+      "thread": "Add CI pipeline",
+      "status": "noted",
+      "see": ["w:1"]
+    }
+  ],
+  "recent_decisions": [
+    {
+      "what": "Use pytest",
+      "chose": "pytest over unittest",
+      "why": "Better fixtures",
+      "session": "2026-03-08"
+    }
+  ],
+  "instance_notes": {
+    "from": "instance-1",
+    "to": "instance-2",
+    "remarks": ["First test run"],
+    "open_questions": ["Coverage target?"]
+  },
+  "memory_config": {
+    "integration": "none",
+    "path": null
+  },
+  "natural_summary": "Setting up pytest suite for memory-tools."
+}

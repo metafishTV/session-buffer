@@ -1,0 +1,19 @@
+{
+  "schema_version": 2,
+  "layer": "cold",
+  "archived_decisions": [
+    {"id": "c:1", "what": "Initial schema", "chose": "JSON layers", "why": "Simple, portable", "session": "2026-03-05"},
+    {"id": "c:2", "what": "Hook system", "chose": "Python scripts", "why": "Stdlib only", "session": "2026-03-05"}
+  ],
+  "superseded_mappings": [
+    {"id": "c:10", "original": "buffer-on -> session-buffer:on", "replaced_by": "w:1", "reason": "Renamed plugin", "session": "2026-03-06"}
+  ],
+  "dialogue_trace": [
+    {
+      "id": "c:20",
+      "session": "2026-03-05 initial-setup",
+      "arc": "First working install via Claude desktop app.",
+      "key_moments": ["Three-layer architecture defined"]
+    }
+  ]
+}

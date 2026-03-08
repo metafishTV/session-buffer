@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "last_updated": "2026-03-08",
+  "entries": {
+    "w:44": {"source": "sartre-early", "file": "sartre-early/w044.md", "concept": "Sartre:totalization", "type": "cross_source"},
+    "w:45": {"source": "sartre-early", "file": "sartre-early/w045.md", "concept": "Sartre:praxis", "type": "cross_source"},
+    "cw:1": {"source": "sartre-early", "file": "sartre-early/cw001.md", "concept": "totalization x praxis", "type": "convergence_web"}
+  },
+  "sources": {
+    "sartre-early": {
+      "folder": "sartre-early",
+      "cross_source_ids": ["w:44", "w:45"],
+      "convergence_web_ids": ["cw:1"],
+      "entry_count": 3
+    }
+  },
+  "concept_index": {
+    "totalization": ["w:44"],
+    "praxis": ["w:45"],
+    "totalization x praxis": ["cw:1"]
+  },
+  "source_index": {
+    "Sartre": ["w:44", "w:45"]
+  },
+  "summary": {
+    "total_cross_source": 2,
+    "total_convergence_web": 1,
+    "total_framework": 0,
+    "total_sources": 1
+  }
+}

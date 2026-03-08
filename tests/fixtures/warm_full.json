@@ -1,0 +1,40 @@
+{
+  "concept_map": {
+    "core_concepts": [
+      {"id": "w:1", "term": "sigma trunk", "equiv": "Three-layer persistent memory"},
+      {"id": "w:2", "term": "alpha bin", "equiv": "Reference memory layer"},
+      {"id": "w:3", "term": "conservation", "equiv": "Downward migration when bounds exceeded"}
+    ],
+    "cross_source": [
+      {"id": "w:10", "key": "Plugin:architecture", "maps_to": "yin-yang split", "suggest": null},
+      {"id": "w:11", "key": "CI:pipeline", "maps_to": "GitHub Actions", "suggest": null}
+    ]
+  },
+  "convergence_web": {
+    "_meta": {"total_entries": 2, "last_validated": "2026-03-08"},
+    "entries": [
+      {
+        "id": "cw:1",
+        "thesis": {"ref": "w:1", "label": "sigma trunk"},
+        "athesis": {"ref": "w:2", "label": "alpha bin"},
+        "synthesis": "Working and reference memory cooperate",
+        "metathesis": "Memory architecture mirrors cognitive dual-process"
+      },
+      {
+        "id": "cw:2",
+        "thesis": {"ref": "w:10", "label": "Plugin:architecture"},
+        "athesis": {"ref": "w:3", "label": "conservation"},
+        "synthesis": "Plugin boundaries enforce conservation",
+        "metathesis": "Architectural separation prevents unbounded growth"
+      }
+    ]
+  },
+  "decisions_archive": [
+    {"id": "w:20", "what": "Layer limits", "chose": "200/500/500", "why": "Balance context vs tokens", "session": "2026-03-06"},
+    {"id": "w:21", "what": "ID format", "chose": "w:N prefix", "why": "Layer-aware addressing", "session": "2026-03-06"},
+    {"id": "w:22", "what": "Tower format", "chose": "Sealed JSON", "why": "Immutable archive", "session": "2026-03-06"}
+  ],
+  "validation_log": [
+    {"id": "w:30", "check": "Schema v2 compliance", "status": "PASS", "detail": "All fields present", "session": "2026-03-08"}
+  ]
+}
