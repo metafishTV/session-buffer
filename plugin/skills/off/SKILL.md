@@ -189,6 +189,8 @@ Identify unresolved questions, deferred items, and next steps. Write each to `op
 ### Step 6: Validate concept map
 
 > **Mode gate**: Full only. Lite mode skips this step (no concept map).
+>
+> **Alpha gate:** Check if `alpha/` directory exists: `ls .claude/buffer/alpha/index.json 2>/dev/null`. If alpha bin does NOT exist — skip Steps 6 and 6b entirely. Concept map operations are deferred until the distill plugin provisions the alpha bin.
 
 **Alpha-aware**: After migration, concept_map entries (cross_source, convergence_web, framework) live in the **alpha bin** (`alpha/` directory), not the warm layer. The warm layer retains only `decisions_archive` and `validation_log`.
 
@@ -211,6 +213,8 @@ Identify unresolved questions, deferred items, and next steps. Write each to `op
 ### Step 6b: Consolidation
 
 > **Mode gate**: Full only. Lite mode skips this step.
+>
+> **Alpha gate:** If alpha bin does NOT exist — skip this step entirely.
 
 **Alpha-aware**: With reference memory in the alpha bin, consolidation operates differently:
 

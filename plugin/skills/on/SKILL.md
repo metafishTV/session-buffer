@@ -196,6 +196,8 @@ Read `.claude/buffer/handoff.json` (~200 lines). This is the only mandatory read
 ### Step 1b: Alpha bin detection
 
 > **Mode gate: Full only.** Lite mode has no reference memory — skip.
+>
+> **Alpha gate:** Check if `alpha/` directory exists in the buffer: `ls .claude/buffer/alpha/index.json 2>/dev/null`. If alpha bin does NOT exist — skip this step silently, proceed to Step 2.
 
 Check for alpha bin (reference memory separated from working memory):
 
@@ -266,7 +268,7 @@ Selective loading from warm/cold layers using the pointer-index system:
 **For each entry in `concept_map_digest.flagged` and `concept_map_digest.recent_changes`:**
 
 1. Collect all referenced IDs from `"see"` arrays (these will be `w:N` or `cw:N` IDs)
-2. **Check alpha index first** — run `alpha-query --id [id]` to retrieve from alpha bin. Most `w:N` and `cw:N` IDs live in alpha after migration.
+2. **If alpha bin exists**, check alpha index first — run `alpha-query --id [id]` to retrieve from alpha bin. Most `w:N` and `cw:N` IDs live in alpha after migration.
 3. **Fall back to warm** — if not in alpha, read `handoff-warm.json` and extract matching entries
 4. If a warm entry has `"see_also"` references, read `handoff-cold.json` and extract those entries
 5. **Max cascade depth: 3** (hot -> alpha/warm -> cold, then stop)

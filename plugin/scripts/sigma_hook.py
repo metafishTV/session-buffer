@@ -576,11 +576,16 @@ def main():
     # GATE 1: Load suppress list (zero cost if file absent)
     suppress_list = load_suppress_list(buffer_dir)
 
-    # Load alpha index once (needed for IDF computation + Level 2 matching)
-    alpha_path = os.path.join(buffer_dir, 'alpha', 'index.json')
-    alpha_idx = read_json(alpha_path)
-    concept_index = alpha_idx.get('concept_index', {}) if alpha_idx else {}
-    sources_data = alpha_idx.get('sources', {}) if alpha_idx else {}
+    # Load alpha index if alpha bin exists (needed for IDF computation + Level 2 matching)
+    alpha_dir = os.path.join(buffer_dir, 'alpha')
+    if os.path.isdir(alpha_dir):
+        alpha_idx = read_json(os.path.join(alpha_dir, 'index.json'))
+        concept_index = alpha_idx.get('concept_index', {}) if alpha_idx else {}
+        sources_data = alpha_idx.get('sources', {}) if alpha_idx else {}
+    else:
+        alpha_idx = None
+        concept_index = {}
+        sources_data = {}
 
     # Compute dynamic scalars from corpus size and prompt size
     corpus_size = len(concept_index)
