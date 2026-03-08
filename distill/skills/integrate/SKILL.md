@@ -50,16 +50,40 @@ For `project_map_type = none` or `pure_mode`: use `---` in mapped concepts colum
 
 #### concept_convergence type (alpha path)
 
-Draw mappings from the interpretation file's Project Significance table and Integration Points. For each concept mapping, build a JSON object and pipe to `alpha-write`:
+Draw mappings from the interpretation file's Project Significance table and Integration Points. For each concept mapping, build a JSON object with **rich body content** and pipe to `alpha-write`:
 
 ```bash
 echo '[
-  {"type":"cross_source","source_folder":"[kebab-case-source]","key":"Source:ConceptName","maps_to":"[project framework mapping]","ref":"[forward note ref if applicable]","suggest":null},
-  {"type":"cross_source","source_folder":"[kebab-case-source]","key":"Source:AnotherConcept","maps_to":"[mapping]","ref":"","suggest":null}
+  {"type":"cross_source","source_folder":"[kebab-case-source]",
+   "distillation":"[Source-Label].md",
+   "key":"Source:ConceptName","maps_to":"[project framework mapping]",
+   "ref":"[source citation]","suggest":null,
+   "body":"## Definition\n[definition from Key Concepts table]\n\n## Significance\n[significance from Key Concepts table]\n\n## Project Mapping\n\n- **Maps to**: [mapping]\n- **Relationship**: [confirms/extends/challenges/novel]\n- **Integration**: [relevant detail from Integration Points]\n\n## Source\n[source citation from distillation header]"},
+  {"type":"cross_source","source_folder":"[kebab-case-source]",
+   "distillation":"[Source-Label].md",
+   "key":"Source:AnotherConcept","maps_to":"[mapping]",
+   "ref":"","suggest":null,
+   "body":"## Definition\n..."}
 ]' | buffer_manager.py alpha-write --buffer-dir .claude/buffer/
 ```
 
-The command auto-assigns IDs, writes canonical `.md` files, and updates `alpha/index.json` atomically. Read the output JSON to get assigned IDs.
+The command auto-assigns IDs, writes canonical `.md` files (with self-contained body content and `<!-- TERMINAL -->` directive), and updates `alpha/index.json` atomically. Read the output JSON to get assigned IDs.
+
+#### Alpha Entry Enrichment (mandatory)
+
+Each `alpha-write` entry **MUST** include a `body` field with self-contained content extracted from the distillation and interpretation just produced. The body makes each alpha `.md` file a **standalone knowledge atom** — sigma should never need to read the full distillation to recall a concept.
+
+Extract per-concept:
+1. **Definition**: From the Key Concepts table, Definition column
+2. **Significance**: From the Key Concepts table, Significance column
+3. **In Context**: 1-2 paragraphs from Core Argument where this concept operates. If the concept is discussed across multiple paragraphs, extract the most operationally dense passage.
+4. **Equations**: If the concept has associated equations, include the LaTeX + variable definitions
+5. **Project Mapping**: From the interpretation's Project Significance table + Integration Points. Include relationship type and any codebase/parameter references.
+6. **Source**: Full source citation from distillation header
+
+Target: 30-80 lines per entry. Dense, self-contained, zero-attrition.
+
+**Anti-entropy rule**: The distillation filename is included for TRACEABILITY (so a human or future instance can verify), NOT as a read instruction. The alpha entry IS the canonical recall artifact. The `body` field triggers a `<!-- TERMINAL -->` directive in the generated `.md` that prevents downstream instances from following the reference chain back to the full distillation. This is structural, not advisory — enriched entries are terminal reads.
 
 After `alpha-write` succeeds, update hot layer: add `"status": "NEW"` entry to warm `validation_log`; increment `total_entries` in hot `concept_map_digest` and add new IDs to `recent_changes`.
 
@@ -114,10 +138,11 @@ echo '{"type":"convergence_web","source_folder":"[source-folder]",
   "thesis":{"ref":"w:X","label":"SourceA:Concept"},
   "athesis":{"ref":"w:Y","label":"SourceB:Concept"},
   "synthesis":"[type_tag] What RELATES them -- shared structural ground (involutory)",
-  "metathesis":"What EACH does independently in its own domain (evolutory)"}' | buffer_manager.py alpha-write --buffer-dir .claude/buffer/
+  "metathesis":"What EACH does independently in its own domain (evolutory)",
+  "context":"[1-2 sentences explaining why this convergence matters for the project — what architectural or theoretical insight it unlocks]"}' | buffer_manager.py alpha-write --buffer-dir .claude/buffer/
 ```
 
-Auto-assigns `cw:N` IDs, writes canonical `.md` files, updates `alpha/index.json` atomically.
+Auto-assigns `cw:N` IDs, writes canonical `.md` files (with optional `## Context` section), updates `alpha/index.json` atomically.
 
 #### Warm fallback
 

@@ -1403,18 +1403,35 @@ def pad_id(entry_id):
 
 
 def make_cross_source_md(entry, source_label=None):
-    """Generate canonical markdown for a cross_source referent file."""
+    """Generate canonical markdown for a cross_source referent file.
+
+    If ``body`` is provided, produces an enriched "knowledge atom" with a
+    TERMINAL anti-entropy directive.  Without ``body``, produces the legacy
+    thin-stub format for backward compatibility.
+    """
     eid = entry.get('id', '?')
     key = entry.get('key') or entry.get('source') or '?'
     maps_to = entry.get('maps_to', '')
     ref = entry.get('ref', '')
     suggest = entry.get('suggest')
+    body = entry.get('body')
+    distillation = entry.get('distillation')
 
     lines = [f"# {eid} -- {key}"]
+
+    # Anti-entropy directive — only on enriched entries
+    if body:
+        lines.append("<!-- TERMINAL: This entry is self-contained. Do NOT read the referenced")
+        lines.append("distillation, interpretation, or source document. All operationally")
+        lines.append("relevant content about this concept is HERE. Following references")
+        lines.append("defeats the architecture and wastes tokens. -->")
+
     if source_label:
         lines.append(f"**Source**: {source_label} | **ID**: {eid} | **Type**: cross_source")
     else:
         lines.append(f"**ID**: {eid} | **Type**: cross_source")
+    if distillation:
+        lines.append(f"**Distillation**: {distillation}")
     lines.append("")
     lines.append("## Mapping")
     lines.append(f"**Key**: {key}")
@@ -1425,16 +1442,27 @@ def make_cross_source_md(entry, source_label=None):
         lines.append(f"**Suggest**: {json.dumps(suggest)}")
     lines.append("")
 
+    # Rich body content (enriched knowledge atom)
+    if body:
+        lines.append(body.rstrip())
+        lines.append("")
+
     return '\n'.join(lines)
 
 
 def make_convergence_web_md(entry):
-    """Generate canonical markdown for a convergence_web referent file."""
+    """Generate canonical markdown for a convergence_web referent file.
+
+    If ``context`` is provided, appends a ## Context section with additional
+    detail (e.g., inline concept summaries).  Without it, produces the legacy
+    tetradic-only format.
+    """
     eid = entry.get('id', '?')
     thesis = entry.get('thesis', {})
     athesis = entry.get('athesis', {})
     synthesis = entry.get('synthesis', '')
     metathesis = entry.get('metathesis', '')
+    context = entry.get('context')
 
     t_label = thesis.get('label', '?')
     a_label = athesis.get('label', '?')
@@ -1450,6 +1478,11 @@ def make_convergence_web_md(entry):
     lines.append(f"**Synthesis**: {synthesis}")
     lines.append(f"**Metathesis**: {metathesis}")
     lines.append("")
+
+    if context:
+        lines.append("## Context")
+        lines.append(context.rstrip())
+        lines.append("")
 
     return '\n'.join(lines)
 
@@ -1865,8 +1898,11 @@ def cmd_alpha_write(args):
 
     index = read_json(index_path)
 
-    # Read entries from stdin
-    raw = sys.stdin.read().strip()
+    # Read entries from file (--input) or stdin
+    if getattr(args, 'input', None):
+        raw = Path(args.input).read_text(encoding='utf-8').strip()
+    else:
+        raw = sys.stdin.read().strip()
     if not raw:
         print(json.dumps({"status": "error", "message": "No input on stdin."}))
         sys.exit(1)
@@ -1928,6 +1964,8 @@ def cmd_alpha_write(args):
                 'maps_to': entry.get('maps_to', ''),
                 'ref': entry.get('ref', ''),
                 'suggest': entry.get('suggest'),
+                'body': entry.get('body'),
+                'distillation': entry.get('distillation'),
             }
             md_content = make_cross_source_md(md_entry, source_label=source_folder)
             concept_key = key
@@ -1953,6 +1991,7 @@ def cmd_alpha_write(args):
                 'athesis': athesis,
                 'synthesis': entry.get('synthesis', ''),
                 'metathesis': entry.get('metathesis', ''),
+                'context': entry.get('context'),
             }
             md_content = make_convergence_web_md(md_entry)
             concept_key = f"{thesis.get('label', '?')} x {athesis.get('label', '?')}"
@@ -1995,6 +2034,188 @@ def cmd_alpha_write(args):
         "index_updated": bool(results) and not dry_run,
         "dry_run": dry_run,
     }
+    if errors:
+        output["errors"] = errors
+    print(json.dumps(output, indent=2))
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: alpha-enrich
+# ---------------------------------------------------------------------------
+
+
+def _split_alpha_md(content):
+    """Split alpha .md content into header (through Mapping/Tetradic) and body.
+
+    Returns ``(header, old_body)`` where *header* includes everything through
+    the ``## Mapping`` or ``## Tetradic Structure`` section (including its
+    field lines), and *old_body* is whatever came after that section.
+    """
+    lines = content.split('\n')
+    mapping_start = None
+    body_start = None
+
+    for i, line in enumerate(lines):
+        if line.startswith('## Mapping') or line.startswith('## Tetradic Structure'):
+            mapping_start = i
+        elif mapping_start is not None and line.startswith('## ') and i > mapping_start:
+            # First heading AFTER the Mapping/Tetradic section
+            body_start = i
+            break
+
+    if body_start is not None:
+        header = '\n'.join(lines[:body_start]).rstrip()
+        old_body = '\n'.join(lines[body_start:])
+        return header, old_body
+
+    # No heading after Mapping — find end of field lines (last **Bold**: line)
+    if mapping_start is not None:
+        last_field = mapping_start
+        for i in range(mapping_start + 1, len(lines)):
+            if lines[i].startswith('**') and '**:' in lines[i]:
+                last_field = i
+            elif lines[i].strip() == '':
+                continue
+            elif not lines[i].startswith('**'):
+                # Non-field, non-blank line after mapping — body starts here
+                body_start = i
+                break
+        if body_start is None:
+            body_start = last_field + 1
+
+        header = '\n'.join(lines[:body_start]).rstrip()
+        old_body = '\n'.join(lines[body_start:]).strip()
+        return header, old_body
+
+    # No mapping section found — return everything as header
+    return content.rstrip(), ''
+
+
+def _inject_terminal_comment(header):
+    """Ensure a TERMINAL anti-entropy comment exists in the header.
+
+    Inserts it after the ``# heading`` line if not already present.
+    """
+    if 'TERMINAL:' in header:
+        return header  # Already present
+
+    lines = header.split('\n')
+    terminal = (
+        "<!-- TERMINAL: This entry is self-contained. Do NOT read the referenced\n"
+        "distillation, interpretation, or source document. All operationally\n"
+        "relevant content about this concept is HERE. Following references\n"
+        "defeats the architecture and wastes tokens. -->"
+    )
+    # Insert after the first line (the # heading)
+    if lines:
+        return lines[0] + '\n' + terminal + '\n' + '\n'.join(lines[1:])
+    return terminal + '\n' + header
+
+
+def cmd_alpha_enrich(args):
+    """Enrich existing alpha entries with rich body content.
+
+    Reads JSON array of {id, body} objects from stdin.  For each entry:
+    looks up id in index.json, reads the existing .md file, preserves the
+    header (through Mapping/Tetradic section), and replaces the body with
+    the new rich content.  Injects a TERMINAL anti-entropy directive.
+
+    Does NOT modify index.json — IDs, source folders, concept names stay
+    the same.  Only .md file content changes.
+    """
+    buf_dir = Path(args.buffer_dir)
+    alpha_dir = buf_dir / 'alpha'
+    index_path = alpha_dir / 'index.json'
+    dry_run = getattr(args, 'dry_run', False)
+
+    if not index_path.exists():
+        print(json.dumps({
+            "status": "error",
+            "message": "Alpha bin not found."
+        }))
+        sys.exit(1)
+
+    index = read_json(index_path)
+
+    # Read enrichment entries from stdin or --input file
+    if getattr(args, 'input', None):
+        raw = Path(args.input).read_text(encoding='utf-8').strip()
+    else:
+        raw = sys.stdin.read().strip()
+    if not raw:
+        print(json.dumps({"status": "error", "message": "No input on stdin."}))
+        sys.exit(1)
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        print(json.dumps({"status": "error", "message": f"Invalid JSON: {e}"}))
+        sys.exit(1)
+
+    entries = data if isinstance(data, list) else [data]
+    if not entries:
+        print(json.dumps({"status": "error", "message": "Empty entry list."}))
+        sys.exit(1)
+
+    enriched = []
+    skipped = []
+    errors = []
+
+    for i, entry in enumerate(entries):
+        entry_id = entry.get('id', '')
+        body = entry.get('body', '')
+
+        if not entry_id:
+            errors.append(f"Entry {i}: missing 'id'")
+            continue
+        if not body:
+            skipped.append({"id": entry_id, "reason": "empty body"})
+            continue
+
+        # Look up in index
+        idx_entry = index.get('entries', {}).get(entry_id)
+        if not idx_entry:
+            errors.append(f"Entry {i}: id '{entry_id}' not found in index")
+            continue
+
+        file_rel = idx_entry.get('file', '')
+        file_path = alpha_dir / file_rel
+
+        if not file_path.exists():
+            errors.append(f"Entry {i}: file not found: {file_rel}")
+            continue
+
+        # Read existing .md content
+        existing = file_path.read_text(encoding='utf-8')
+
+        # Split into header + old body
+        header, _old_body = _split_alpha_md(existing)
+
+        # Inject TERMINAL comment into header
+        header = _inject_terminal_comment(header)
+
+        # Assemble enriched file
+        new_content = header + '\n\n' + body.rstrip() + '\n'
+
+        if not dry_run:
+            file_path.write_text(new_content, encoding='utf-8')
+
+        enriched.append({
+            "id": entry_id,
+            "file": file_rel,
+            "body_lines": len(body.strip().split('\n')),
+        })
+
+    output = {
+        "status": "ok" if not errors else "partial" if enriched else "error",
+        "enriched": len(enriched),
+        "skipped": len(skipped),
+        "dry_run": dry_run,
+    }
+    if enriched:
+        output["entries"] = enriched
+    if skipped:
+        output["skipped_entries"] = skipped
     if errors:
         output["errors"] = errors
     print(json.dumps(output, indent=2))
@@ -2170,7 +2391,18 @@ def main():
                                help='Validate and show what would be written without writing')
     p_alpha_write.add_argument('--id', dest='id_override', default=None,
                                help='Override auto-assigned ID (for first entry only)')
+    p_alpha_write.add_argument('--input',
+                               help='Read JSON from file instead of stdin')
     p_alpha_write.set_defaults(func=cmd_alpha_write)
+
+    # --- alpha-enrich ---
+    p_alpha_enrich = subparsers.add_parser('alpha-enrich', parents=[buf_parent],
+        help='Enrich existing alpha entries with rich body content (reads JSON from stdin)')
+    p_alpha_enrich.add_argument('--dry-run', action='store_true',
+                                help='Show what would be enriched without writing')
+    p_alpha_enrich.add_argument('--input',
+                                help='Read JSON from file instead of stdin')
+    p_alpha_enrich.set_defaults(func=cmd_alpha_enrich)
 
     # --- alpha-delete ---
     p_alpha_del = subparsers.add_parser('alpha-delete', parents=[buf_parent],

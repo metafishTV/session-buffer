@@ -22,9 +22,10 @@ from buffer_manager import (
     detect_layer_limits, resolve_limits, read_json, write_json,
     cmd_read, cmd_update, cmd_migrate, cmd_validate, cmd_next_id,
     cmd_alpha_read, cmd_alpha_query, cmd_alpha_write, cmd_alpha_delete,
-    cmd_alpha_validate, cmd_handoff, cmd_archive, cmd_sync,
+    cmd_alpha_validate, cmd_alpha_enrich, cmd_handoff, cmd_archive, cmd_sync,
     alpha_update_index, alpha_remove_from_index, alpha_max_id,
     make_cross_source_md, make_convergence_web_md,
+    _split_alpha_md, _inject_terminal_comment,
     HOT_MAX_LINES, WARM_MAX_LINES_DEFAULT, COLD_MAX_LINES,
 )
 
@@ -734,6 +735,237 @@ class TestCmdAlphaWrite:
             dry_run=False, id_override=None)
         with pytest.raises(SystemExit):
             cmd_alpha_write(args)
+
+
+class TestMakeMdEnriched:
+    """Enriched make_*_md templates: body/context fields + TERMINAL directive."""
+
+    def test_cross_source_with_body(self):
+        entry = {
+            'id': 'w:99',
+            'key': 'Test:concept',
+            'maps_to': 'project mapping',
+            'ref': '§3, p. 12',
+            'body': '## Definition\nTest definition.\n\n## Significance\nTest significance.',
+            'distillation': 'Test_Paper_2024.md',
+        }
+        md = make_cross_source_md(entry, source_label='test-source')
+        assert 'TERMINAL:' in md
+        assert '## Definition' in md
+        assert '## Significance' in md
+        assert '**Distillation**: Test_Paper_2024.md' in md
+        assert 'Test definition.' in md
+
+    def test_cross_source_without_body_backward_compat(self):
+        entry = {
+            'id': 'w:99',
+            'key': 'Test:concept',
+            'maps_to': 'project mapping',
+        }
+        md = make_cross_source_md(entry, source_label='test-source')
+        assert 'TERMINAL:' not in md
+        assert '## Definition' not in md
+        assert '**Distillation**' not in md
+        # Still has the thin stub structure
+        assert '## Mapping' in md
+        assert '**Key**: Test:concept' in md
+
+    def test_convergence_web_with_context(self):
+        entry = {
+            'id': 'cw:99',
+            'thesis': {'ref': 'w:1', 'label': 'A:x'},
+            'athesis': {'ref': 'w:2', 'label': 'B:y'},
+            'synthesis': 'shared ground',
+            'metathesis': 'independent functions',
+            'context': 'Additional context about the convergence.',
+        }
+        md = make_convergence_web_md(entry)
+        assert '## Context' in md
+        assert 'Additional context about the convergence.' in md
+
+    def test_convergence_web_without_context(self):
+        entry = {
+            'id': 'cw:99',
+            'thesis': {'ref': 'w:1', 'label': 'A:x'},
+            'athesis': {'ref': 'w:2', 'label': 'B:y'},
+            'synthesis': 'shared ground',
+            'metathesis': 'independent functions',
+        }
+        md = make_convergence_web_md(entry)
+        assert '## Context' not in md
+        assert '## Tetradic Structure' in md
+
+
+class TestSplitAlphaMd:
+    """_split_alpha_md: correctly splits header from body content."""
+
+    def test_split_with_body_headings(self):
+        content = (
+            "# w:62 -- Levinas:alterity\n"
+            "**Source**: levinas-early | **ID**: w:62\n"
+            "\n"
+            "## Mapping\n"
+            "**Key**: Levinas:alterity\n"
+            "**Maps to**: irreducible otherness\n"
+            "**Ref**: §5.10\n"
+            "\n"
+            "## Definition\n"
+            "The absolute Other.\n"
+            "\n"
+            "## Significance\n"
+            "Blocks totalization.\n"
+        )
+        header, body = _split_alpha_md(content)
+        assert '## Mapping' in header
+        assert '**Ref**: §5.10' in header
+        assert '## Definition' in body
+        assert '## Significance' in body
+        assert '## Definition' not in header
+
+    def test_split_thin_stub_no_body(self):
+        content = (
+            "# w:82 -- Emery:DP1\n"
+            "**Source**: emery-early | **ID**: w:82\n"
+            "\n"
+            "## Mapping\n"
+            "**Key**: Emery:DP1\n"
+            "**Maps to**: hierarchical topology\n"
+            "**Ref**: Emery_Emery_ParticipativeDesign_1974_Paper\n"
+        )
+        header, body = _split_alpha_md(content)
+        assert '## Mapping' in header
+        assert body.strip() == ''
+
+
+class TestInjectTerminalComment:
+    """_inject_terminal_comment: inserts TERMINAL directive correctly."""
+
+    def test_injects_after_heading(self):
+        header = "# w:62 -- Levinas:alterity\n**Source**: levinas-early"
+        result = _inject_terminal_comment(header)
+        assert 'TERMINAL:' in result
+        lines = result.split('\n')
+        assert lines[0] == "# w:62 -- Levinas:alterity"
+        assert 'TERMINAL' in lines[1]
+
+    def test_idempotent(self):
+        header = "# w:62\n<!-- TERMINAL: already here -->\n**Source**: test"
+        result = _inject_terminal_comment(header)
+        assert result.count('TERMINAL:') == 1
+
+
+class TestCmdAlphaEnrich:
+    """cmd_alpha_enrich: enrich existing entries with rich body content."""
+
+    def test_enrich_existing_entry(self, full_buffer_dir, capsys, monkeypatch):
+        # First write a thin stub
+        write_entry = {
+            "type": "cross_source",
+            "source_folder": "test-enrich",
+            "key": "Test:enrich_me",
+            "maps_to": "test mapping",
+            "ref": "§1",
+        }
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(write_entry)))
+        args = SimpleNamespace(
+            buffer_dir=str(full_buffer_dir),
+            dry_run=False, id_override=None)
+        cmd_alpha_write(args)
+
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        entry_id = result["entries_written"][0]["id"]
+        file_rel = result["entries_written"][0]["file"]
+
+        # Now enrich it
+        enrich_data = [{
+            "id": entry_id,
+            "body": "## Definition\nA test concept.\n\n## Significance\nVery important."
+        }]
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(enrich_data)))
+        args = SimpleNamespace(buffer_dir=str(full_buffer_dir), dry_run=False)
+        cmd_alpha_enrich(args)
+
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert result["status"] == "ok"
+        assert result["enriched"] == 1
+
+        # Verify file content
+        md_path = full_buffer_dir / "alpha" / file_rel
+        content = md_path.read_text(encoding='utf-8')
+        assert 'TERMINAL:' in content
+        assert '## Definition' in content
+        assert 'A test concept.' in content
+        assert '## Mapping' in content  # Header preserved
+        assert '**Key**: Test:enrich_me' in content  # Original mapping preserved
+
+    def test_enrich_dry_run(self, full_buffer_dir, capsys, monkeypatch):
+        enrich_data = [{"id": "w:44", "body": "## Definition\nShould not write."}]
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(enrich_data)))
+        args = SimpleNamespace(buffer_dir=str(full_buffer_dir), dry_run=True)
+        cmd_alpha_enrich(args)
+
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert result["dry_run"] is True
+        assert result["enriched"] == 1
+
+        # File should NOT be modified
+        md_path = full_buffer_dir / "alpha" / "sartre-early" / "w044.md"
+        content = md_path.read_text(encoding='utf-8')
+        assert '## Definition' not in content  # Original thin stub preserved
+
+    def test_enrich_missing_id_errors(self, full_buffer_dir, capsys, monkeypatch):
+        enrich_data = [{"id": "w:99999", "body": "## Definition\nGhost."}]
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(enrich_data)))
+        args = SimpleNamespace(buffer_dir=str(full_buffer_dir), dry_run=False)
+        cmd_alpha_enrich(args)
+
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert result["status"] == "error"
+        assert len(result["errors"]) == 1
+
+    def test_enrich_idempotent(self, full_buffer_dir, capsys, monkeypatch):
+        """Enriching the same entry twice produces identical output."""
+        # Write initial entry
+        write_entry = {
+            "type": "cross_source",
+            "source_folder": "test-idem",
+            "key": "Test:idempotent",
+            "maps_to": "idem mapping",
+        }
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps(write_entry)))
+        args = SimpleNamespace(
+            buffer_dir=str(full_buffer_dir),
+            dry_run=False, id_override=None)
+        cmd_alpha_write(args)
+
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        entry_id = result["entries_written"][0]["id"]
+        file_rel = result["entries_written"][0]["file"]
+        md_path = full_buffer_dir / "alpha" / file_rel
+
+        body = "## Definition\nIdempotent concept.\n\n## Significance\nStays the same."
+
+        # Enrich once
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps([{"id": entry_id, "body": body}])))
+        args = SimpleNamespace(buffer_dir=str(full_buffer_dir), dry_run=False)
+        cmd_alpha_enrich(args)
+        capsys.readouterr()
+        content_first = md_path.read_text(encoding='utf-8')
+
+        # Enrich again with same body
+        monkeypatch.setattr("sys.stdin", io.StringIO(json.dumps([{"id": entry_id, "body": body}])))
+        args = SimpleNamespace(buffer_dir=str(full_buffer_dir), dry_run=False)
+        cmd_alpha_enrich(args)
+        capsys.readouterr()
+        content_second = md_path.read_text(encoding='utf-8')
+
+        assert content_first == content_second
+        assert content_second.count('TERMINAL:') == 1
 
 
 class TestCmdAlphaDelete:
