@@ -5,6 +5,8 @@ description: Distill source documents (PDF, image, web) with project integration
 
 # Source Distillation
 
+**ENFORCEMENT RULE — applies to all sub-skills invoked below**: Any step in any sub-skill that says MANDATORY POPUP MUST use the `AskUserQuestion` tool. You MUST call `AskUserQuestion`, you MUST wait for the response, and you MUST NOT continue past that step until the user has answered. This is non-negotiable.
+
 Distill a source document into structured reference knowledge.
 
 ## Routing

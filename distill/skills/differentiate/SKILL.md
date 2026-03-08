@@ -57,7 +57,7 @@ If a project skill already exists but was generated with an older pipeline -- **
 
 ## Step 1: Tooling Audit (automatic, no user interaction)
 
-**Script shortcut**: Run `python ~/.claude/skills/distill/scripts/distill_setup.py audit-tools` -- outputs a JSON tooling profile with all 9 tool checks. Skip the manual checks below.
+**Script shortcut**: Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_setup.py audit-tools` -- outputs a JSON tooling profile with all 9 tool checks. Skip the manual checks below.
 
 <details><summary>Manual checks (if script unavailable)</summary>
 
@@ -112,7 +112,7 @@ Web and image source routes use only Claude's built-in tools. No specialist inst
 
 ## Step 2: Project Scan (automatic, no user interaction)
 
-**Script shortcut**: Run `python ~/.claude/skills/distill/scripts/distill_setup.py scan-project --repo-dir /path/to/repo` -- outputs a JSON scan with all detected paths, buffer state, distillation counts, and map type. Skip the manual scan below.
+**Script shortcut**: Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_setup.py scan-project --repo-dir /path/to/repo` -- outputs a JSON scan with all detected paths, buffer state, distillation counts, and map type. Skip the manual scan below.
 
 Scan the repository for existing distillation infrastructure:
 
@@ -214,7 +214,7 @@ If existing infrastructure was detected AND the user chose "Integrate with exist
 
 ## Step 4: Generate Project Skill
 
-**Script shortcut**: Run `python ~/.claude/skills/distill/scripts/distill_setup.py generate-skill --repo-dir /path/to/repo --input answers.json` where `answers.json` contains the questionnaire results from Step 3. Outputs the project SKILL.md from template. Review the output and make manual edits (glossary, known issues) as needed.
+**Script shortcut**: Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_setup.py generate-skill --repo-dir /path/to/repo --input answers.json` where `answers.json` contains the questionnaire results from Step 3. Outputs the project SKILL.md from template. Review the output and make manual edits (glossary, known issues) as needed.
 
 Write `<repo>/.claude/skills/distill/SKILL.md` using the template below, filling in values from Steps 1-3.
 
@@ -355,7 +355,7 @@ Plot thread: `{ "id": "pt:N", "thread": "[description]", "status": "open|resolve
 
 ## Step 4b: Generate Project README
 
-**Script shortcut**: Run `python ~/.claude/skills/distill/scripts/distill_setup.py generate-readme --repo-dir /path/to/repo --input config.json` where `config.json` contains the project configuration (project name, map type, paths, tooling profile). Outputs the project README.md from template.
+**Script shortcut**: Run `python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_setup.py generate-readme --repo-dir /path/to/repo --input config.json` where `config.json` contains the project configuration (project name, map type, paths, tooling profile). Outputs the project README.md from template.
 
 Write `<repo>/.claude/skills/distill/README.md` alongside the project SKILL.md. This is user-facing documentation -- not instructions for Claude. It should describe:
 

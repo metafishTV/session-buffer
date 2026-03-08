@@ -11,7 +11,7 @@ This skill runs the analytic core of the distillation pipeline. It assumes the `
 
 Before running any analytic pass, load the project's distill configuration:
 
-1. **Read project config** — locate and read the project's `distill.json` or `distill.yaml` (set during differentiation). Extract:
+1. **Read project config** — locate and read the project's distill config at `<repo>/.claude/skills/distill/SKILL.md` (set during differentiation). Extract:
    - `project_name` — used in interpretation file headers
    - `project_map_type` — one of `concept_convergence`, `thematic`, `narrative`, `custom`, `none`
    - `pure_mode` — boolean; if `true`, skip Pass 4 and interpretation file entirely
@@ -297,7 +297,7 @@ The interpretation file template varies by project map type:
 
 Use the custom schema defined during differentiation (loaded from `custom_schema` in the project config). The interpretation file should follow whatever structure the user specified, adapted from the components above.
 
-After writing the interpretation file, **present it to the user immediately** — they should see and review the project reading before post-updates fire.
+**⚠ MANDATORY POPUP**: After writing the interpretation file, you MUST present it to the user via `AskUserQuestion`. Options: "Looks good — proceed with integration" / "I have feedback." Do NOT proceed to integration until the user has responded. Do NOT assume acknowledgment from silence. They should see and review the project reading before post-updates fire.
 
 ## Troubleshooting Decision Tree
 

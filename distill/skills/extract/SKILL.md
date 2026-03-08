@@ -44,9 +44,12 @@ If no project config exists, the parent `distill` skill handles differentiation 
 
 **ShortTitle rules**: 2-4 words from the title, CamelCase, no articles/prepositions. "A Survey of Machine Learning Methods" -> `MachineLearning`.
 
-**Step L3: User confirmation** -- Always present the constructed label:
-- If metadata found: "I'll label this source **`Smith_Jones_MachineLearning_2024_Paper`**. Good, or would you prefer something different?"
-- If no metadata: "This source doesn't have clear author/title metadata. Give me a short descriptive label (2-4 words) -- e.g., `NetworkDiagram_Image`, `WhiteboardSessionMarch_Image`."
+**Step L3: User confirmation** --
+
+**⚠ MANDATORY POPUP**: You MUST use `AskUserQuestion` to confirm the source label. Do NOT proceed without user confirmation.
+
+- If metadata found: Present via `AskUserQuestion` with options: "[Constructed label] — use this" / "I'll provide a different label". Example label: `Smith_Jones_MachineLearning_2024_Paper`.
+- If no metadata: Use `AskUserQuestion` to ask for a descriptive label (2-4 words) — e.g., `NetworkDiagram_Image`, `WhiteboardSessionMarch_Image`.
 
 **Step L4: Record and propagate** -- The confirmed label becomes `[Source-Label]` for all subsequent steps:
 - Source file: `[source_dir]/[Source-Label].[ext]` (multi-part: `[Source-Label]_pg[range].[ext]`)
@@ -82,17 +85,19 @@ Two-phase strategy: PyMuPDF scans every page first (fast content detection), the
 
 Run the bundled scan script:
 ```
-python ~/.claude/skills/distill/scripts/distill_scan.py "<pdf_path>" --output _distill_scan.json
+python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_scan.py "<pdf_path>" --output _distill_scan.json
 ```
 
-Read `_distill_scan.json` for structured scan data (page lists for tables, complex_layout, scanned, equations, text_pages). **Present the scan summary to the user**, including confidence notes. Low-confidence detections proceed normally but note them in the distillation header under `> Scan notes:`.
+Read `_distill_scan.json` for structured scan data (page lists for tables, complex_layout, scanned, equations, text_pages).
+
+**⚠ MANDATORY POPUP**: Present the scan summary via `AskUserQuestion`. Include page counts, detected features (tables, equations, scanned pages, complex layout), and confidence notes. Options: "Proceed with extraction" / "I have notes about this scan". Low-confidence detections proceed normally but note them in the distillation header under `> Scan notes:`.
 
 **Text extraction**: Run the bundled extraction script (writes UTF-8 to file, never stdout):
 ```
-python ~/.claude/skills/distill/scripts/distill_extract.py "<pdf_path>" --scan _distill_scan.json --output _distill_text.txt
+python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_extract.py "<pdf_path>" --scan _distill_scan.json --output _distill_text.txt
 ```
 
-**Modification protocol**: If a script needs edge-case adaptation, copy it to the repo, modify the copy, note in Known Issues. Never modify the global copy in `~/.claude/skills/distill/scripts/`.
+**Modification protocol**: If a script needs edge-case adaptation, copy it to the repo, modify the copy, note in Known Issues. Never modify the bundled copy in `${CLAUDE_PLUGIN_ROOT}/scripts/`.
 
 ### Phase 2: Content-Based Routing
 
@@ -214,8 +219,8 @@ If no browser tools: note `> Figures: not captured -- browser tools unavailable`
 
 **Step R2: YouTube metadata + captions** -- Run bundled transcription script:
 ```
-python ~/.claude/skills/distill/scripts/distill_transcribe.py "<URL>" --output _distill_meta.json --metadata-only
-python ~/.claude/skills/distill/scripts/distill_transcribe.py "<URL>" --output _distill_transcript.txt
+python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_transcribe.py "<URL>" --output _distill_meta.json --metadata-only
+python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_transcribe.py "<URL>" --output _distill_transcript.txt
 ```
 Tries in order: (1) extract captions via yt-dlp, (2) download audio + transcribe with faster-whisper. If yt-dlp not installed, trigger Demand-Install Protocol (required for YouTube).
 
@@ -228,7 +233,7 @@ If purely talking-head: skip, note `> Figures: none (talking-head format)`.
 
 **Step R4: Local file transcription**:
 ```
-python ~/.claude/skills/distill/scripts/distill_transcribe.py "<file_path>" --output _distill_transcript.txt
+python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_transcribe.py "<file_path>" --output _distill_transcript.txt
 ```
 Uses faster-whisper. If not installed, trigger Demand-Install Protocol (`pip install faster-whisper`, ~150MB model on first use).
 
@@ -257,7 +262,7 @@ Uses faster-whisper. If not installed, trigger Demand-Install Protocol (`pip ins
 
 Run the bundled figure extraction script:
 ```
-python ~/.claude/skills/distill/scripts/distill_figures.py "<pdf_path>" --scan _distill_scan.json --outdir <figures_dir> --manifest _manifest.json
+python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_figures.py "<pdf_path>" --scan _distill_scan.json --outdir <figures_dir> --manifest _manifest.json
 ```
 
 Uses three detection channels (vector drawings, raster images, caption-based), associates captions within 80pt, crops at dpi=200. Read `_manifest.json` to drive decomposition.
@@ -304,9 +309,11 @@ For **non-PDF images**: Use Read tool directly (multimodal decomposition).
 
 When a specialist tool is needed but not installed, and its tooling profile status is `demand-install`:
 
+**⚠ MANDATORY POPUP**: You MUST use `AskUserQuestion` to offer tool installation. Do NOT install without explicit user consent. Do NOT skip — present the offer and wait.
+
 1. **Explain what was detected**: "This PDF contains [tables / multi-column layout / scanned pages / equations]."
 2. **Explain what the tool does**: One sentence on its capability for this content.
-3. **Offer install** with exact command and size:
+3. **Offer install** via `AskUserQuestion` with options: "Install [tool] now" / "Skip — use fallback". For tools that may be needed later, add "Install later when needed" as a third option. Include exact command and size:
    - pdfplumber: `pip install pdfplumber` (<1MB)
    - Docling: `pip install docling` (~500MB model on first use)
    - Marker: `pip install marker-pdf` (~200MB, optional GPU)
