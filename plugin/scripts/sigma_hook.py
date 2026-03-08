@@ -4,24 +4,27 @@ Session Buffer — Sigma Hook (UserPromptSubmit)
 
 Fires on every user message. Cascades through sigma layers:
 
-  message → hot layer → concept digest → alpha (if needed)
+  message → gates → hot layer → alpha (if needed) → silent exit
 
-Each level is cheaper than the next. Most messages during active work
-match hot context and never touch alpha. Alpha dip is the "deep reach"
-reserved for when the user references concepts outside current work.
+Gates (exit-early, zero token cost):
+  1. Suppress list: .sigma_suppress file lists concepts/threads to ignore
+  2. Staleness gate: skip hot level when buffer already loaded this session
+  3. AND-logic scoring: require 2+ keyword matches for confidence
+
+Cascade levels:
+  1. Hot layer — active_work, open_threads, decisions, why_keys
+  2. Alpha — concept_index fallthrough (only when hot misses)
 
 Output format (ultra-minimal):
-  σ hot: thread[2] "R&B deep review" [noted]
-  σ w:62 alterity (Levinas)
-  σ w:73 rhizomatic | w:74 arborescent (DG)
+  sigma hot: thread: [noted] R&B deep review.
+  sigma alpha: w:62 alterity (Levinas) | w:73 rhizomatic (DG)
 
 Design constraints:
-  - Max 3 entries injected total (across all cascade levels)
+  - Max 3 entries injected total
   - Max 15 keywords extracted from message
   - Total injection < ~100 tokens
   - Must complete in <5s
-  - Hot layer: ~0ms (tiny JSON, already in memory)
-  - Alpha: ~10ms (3000-line index scan, only if hot misses)
+  - Each gate reduces token cost, never adds
 """
 
 import sys
@@ -45,6 +48,7 @@ MIN_WORD_LEN = 4      # skip short words
 SCORE_EXACT = 3       # exact match weight
 SCORE_SUBSTRING = 1   # substring match weight
 MIN_SCORE = 2         # minimum score to qualify for alpha
+MIN_KEYWORD_HITS = 2  # AND-gate: require 2+ distinct keywords matching
 
 # Common words to skip
 STOPWORDS = frozenset({
@@ -113,6 +117,56 @@ def emit_empty():
 
 
 # ---------------------------------------------------------------------------
+# GATE 1: Suppress list
+# ---------------------------------------------------------------------------
+
+def load_suppress_list(buffer_dir):
+    """Load .sigma_suppress file — one entry per line.
+
+    Entries are lowercased concept names, thread fragments, or work IDs
+    that should be silenced. Lines starting with # are comments.
+    Returns frozenset of suppressed terms.
+    """
+    suppress_path = os.path.join(buffer_dir, '.sigma_suppress')
+    try:
+        with open(suppress_path, 'r', encoding='utf-8') as f:
+            entries = set()
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    entries.add(line.lower())
+            return frozenset(entries)
+    except (FileNotFoundError, OSError):
+        return frozenset()
+
+
+def is_suppressed(text, suppress_list):
+    """Check if any suppress entry appears in text."""
+    if not suppress_list:
+        return False
+    text_lower = text.lower()
+    for entry in suppress_list:
+        if entry in text_lower:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# GATE 2: Staleness gate
+# ---------------------------------------------------------------------------
+
+def is_hot_stale(buffer_dir):
+    """Check if buffer was already loaded this session (hot context is redundant).
+
+    Looks for .buffer_loaded marker written by /buffer:on.
+    If present, hot-level hints add no value — the AI already has the full hot layer.
+    Returns True if hot should be skipped (buffer already loaded).
+    """
+    marker = os.path.join(buffer_dir, '.buffer_loaded')
+    return os.path.exists(marker)
+
+
+# ---------------------------------------------------------------------------
 # Keyword extraction
 # ---------------------------------------------------------------------------
 
@@ -162,11 +216,12 @@ def word_match(keyword, text_lower):
     return bool(re.search(r'\b' + re.escape(keyword) + r'\b', text_lower))
 
 
-def match_hot(keywords, hot):
+def match_hot(keywords, hot, suppress_list):
     """Match keywords against hot layer fields.
 
     Checks: active_work, open_threads, recent_decisions, orientation.why_keys.
-    Uses word-boundary matching to avoid false positives (e.g. "concept" in "reconception").
+    Uses word-boundary matching to avoid false positives.
+    Filters suppressed entries.
     Returns list of (label, text) hits, max MAX_INJECT.
     """
     if not keywords or not hot:
@@ -179,39 +234,46 @@ def match_hot(keywords, hot):
     for field in ('current_phase', 'in_progress', 'next_action'):
         val = aw.get(field)
         if val and isinstance(val, str) and val != 'None':
+            if is_suppressed(val, suppress_list):
+                continue
             val_lower = val.lower()
-            for kw in keywords:
-                if word_match(kw, val_lower):
-                    hits.append(('active', f"{field}: {val}"))
-                    break
+            matched_kws = [kw for kw in keywords if word_match(kw, val_lower)]
+            if len(matched_kws) >= MIN_KEYWORD_HITS:
+                hits.append(('active', f"{field}: {val}"))
 
     # --- open_threads ---
     threads = hot.get('open_threads', [])
-    for i, t in enumerate(threads):
+    for t in threads:
         thread_text = t.get('thread', '')
         status = t.get('status', '?')
         if thread_text:
+            if is_suppressed(thread_text, suppress_list):
+                continue
             thread_lower = thread_text.lower()
-            for kw in keywords:
-                if word_match(kw, thread_lower):
-                    hits.append(('thread', f"[{status}] {thread_text}"))
-                    break
+            matched_kws = [kw for kw in keywords if word_match(kw, thread_lower)]
+            if len(matched_kws) >= MIN_KEYWORD_HITS:
+                hits.append(('thread', f"[{status}] {thread_text}"))
 
     # --- recent_decisions ---
     decisions = hot.get('recent_decisions', [])
     for d in decisions:
         what = d.get('what', '')
         chose = d.get('chose', '')
-        combined = f"{what} {chose}".lower()
-        for kw in keywords:
-            if word_match(kw, combined):
-                hits.append(('decision', f"{what} -> {chose}"))
-                break
+        combined = f"{what} {chose}"
+        if is_suppressed(combined, suppress_list):
+            continue
+        combined_lower = combined.lower()
+        matched_kws = [kw for kw in keywords if word_match(kw, combined_lower)]
+        if len(matched_kws) >= MIN_KEYWORD_HITS:
+            hits.append(('decision', f"{what} -> {chose}"))
 
-    # --- orientation.why_keys (source names — exact or close match ok) ---
+    # --- orientation.why_keys (source names — single keyword ok here,
+    #     these are short and high-signal) ---
     why_keys = hot.get('orientation', {}).get('why_keys', [])
     matched_sources = []
     for wk in why_keys:
+        if is_suppressed(wk, suppress_list):
+            continue
         wk_lower = wk.lower()
         for kw in keywords:
             if kw == wk_lower or kw in wk_lower or wk_lower in kw:
@@ -224,13 +286,9 @@ def match_hot(keywords, hot):
 
 
 def format_hot_hits(hits):
-    """Format hot layer hits into minimal injection string.
-
-    Format: sigma hot: thread[noted] "R&B deep review" | active: next_action: ...
-    """
+    """Format hot layer hits into minimal injection string."""
     parts = []
     for label, text in hits:
-        # Truncate long text
         if len(text) > 60:
             text = text[:57] + '...'
         parts.append(f"{label}: {text}")
@@ -242,9 +300,12 @@ def format_hot_hits(hits):
 # CASCADE LEVEL 2: Alpha concept matching (fallthrough)
 # ---------------------------------------------------------------------------
 
-def match_alpha_concepts(keywords, concept_index):
+def match_alpha_concepts(keywords, concept_index, suppress_list):
     """Match keywords against alpha concept_index keys.
 
+    AND-gate: requires 2+ distinct keyword hits per concept (exact match
+    counts as 2 by itself since it's high confidence).
+    Filters suppressed concepts.
     Returns list of (concept_key, work_ids, score) sorted by score desc.
     """
     if not keywords or not concept_index:
@@ -255,17 +316,23 @@ def match_alpha_concepts(keywords, concept_index):
     for concept_key, work_ids in concept_index.items():
         if concept_key == '?':
             continue
+        if is_suppressed(concept_key, suppress_list):
+            continue
 
         concept_lower = concept_key.lower()
         score = 0
+        distinct_hits = 0
 
         for kw in keywords:
             if kw == concept_lower:
                 score += SCORE_EXACT
+                distinct_hits += 2  # exact match = high confidence, counts as 2
             elif kw in concept_lower or concept_lower in kw:
                 score += SCORE_SUBSTRING
+                distinct_hits += 1
 
-        if score >= MIN_SCORE:
+        # AND-gate: need sufficient score AND distinct keyword evidence
+        if score >= MIN_SCORE and distinct_hits >= MIN_KEYWORD_HITS:
             scores[concept_key] = (work_ids, score)
 
     ranked = sorted(scores.items(), key=lambda x: x[1][1], reverse=True)
@@ -288,10 +355,7 @@ def find_source_for_id(work_id, sources_data):
 
 
 def format_alpha_hits(concept_matches, sources_data):
-    """Format alpha concept matches into minimal injection string.
-
-    Format: sigma alpha: w:62 alterity (Levinas) | w:73 rhizomatic (DG)
-    """
+    """Format alpha concept matches into minimal injection string."""
     parts = []
 
     for concept_key, work_ids, score in concept_matches:
@@ -306,7 +370,7 @@ def format_alpha_hits(concept_matches, sources_data):
 
 
 # ---------------------------------------------------------------------------
-# Main — cascade logic
+# Main — gated cascade
 # ---------------------------------------------------------------------------
 
 def main():
@@ -330,18 +394,22 @@ def main():
     if not keywords:
         emit_empty()
 
-    # -----------------------------------------------------------------------
-    # LEVEL 1: Hot layer check (cheapest)
-    # -----------------------------------------------------------------------
-    hot = read_json(os.path.join(buffer_dir, 'handoff.json'))
-    if hot:
-        hot_hits = match_hot(keywords, hot)
-        if hot_hits:
-            injection = format_hot_hits(hot_hits)
-            emit({"suppressOutput": True, "systemMessage": injection})
+    # GATE 1: Load suppress list (zero cost if file absent)
+    suppress_list = load_suppress_list(buffer_dir)
 
     # -----------------------------------------------------------------------
-    # LEVEL 2: Alpha concept index (fallthrough — hot didn't match)
+    # LEVEL 1: Hot layer check (cheapest — skipped if buffer already loaded)
+    # -----------------------------------------------------------------------
+    if not is_hot_stale(buffer_dir):
+        hot = read_json(os.path.join(buffer_dir, 'handoff.json'))
+        if hot:
+            hot_hits = match_hot(keywords, hot, suppress_list)
+            if hot_hits:
+                injection = format_hot_hits(hot_hits)
+                emit({"suppressOutput": True, "systemMessage": injection})
+
+    # -----------------------------------------------------------------------
+    # LEVEL 2: Alpha concept index (fallthrough — hot skipped or missed)
     # -----------------------------------------------------------------------
     alpha_path = os.path.join(buffer_dir, 'alpha', 'index.json')
     alpha_idx = read_json(alpha_path)
@@ -351,7 +419,7 @@ def main():
     concept_index = alpha_idx.get('concept_index', {})
     sources_data = alpha_idx.get('sources', {})
 
-    concept_matches = match_alpha_concepts(keywords, concept_index)
+    concept_matches = match_alpha_concepts(keywords, concept_index, suppress_list)
     if not concept_matches:
         emit_empty()
 

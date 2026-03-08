@@ -372,7 +372,14 @@ If already registered, update `last_handoff` to today's date. Write back.
 
 The project name comes from the hot layer's `project_name` field (if present) or is inferred from the repo directory name.
 
-### Step 13: Commit
+### Step 13: Clean up session markers
+
+Remove the sigma hook session marker (created by `/buffer:on`):
+```bash
+rm -f .claude/buffer/.buffer_loaded
+```
+
+### Step 14: Commit
 
 ```bash
 git add .claude/buffer/handoff.json .claude/buffer/handoff-warm.json .claude/buffer/handoff-cold.json

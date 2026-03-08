@@ -367,6 +367,11 @@ Autosave armed — sigma trunk will stay current throughout the session.
 
 If the handoff is >7 days old, add: "Note: trunk is [N] days stale — git state may have diverged significantly."
 
+Write the sigma hook session marker so the hook skips redundant hot-layer hints (the AI already has the full hot layer loaded):
+```bash
+echo "loaded" > .claude/buffer/.buffer_loaded
+```
+
 **⚠ MANDATORY POPUP**: You MUST present a priority check via `AskUserQuestion` before doing any work.
 Do NOT start working on the next action, even if you know what it is. Do NOT skip this popup. The user decides what comes first.
 
