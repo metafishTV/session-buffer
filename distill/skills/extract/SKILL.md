@@ -158,12 +158,33 @@ Use PyMuPDF text directly. No specialist needed.
 3. If unavailable -> warn user, use PyMuPDF sorting blocks by y then x as best-effort.
 
 **Route D -- Scanned pages** (`scan["scanned"]` non-empty)
-1. If Docling installed -> use Docling OCR mode.
-2. If pytesseract installed -> use pytesseract page-by-page OCR (render page via `page.get_pixmap(dpi=300)`, pass image to `pytesseract.image_to_string()`).
-3. If Docling is `demand-install` -> trigger Demand-Install Protocol ("[N] pages appear scanned."). Offer pytesseract as lighter alternative: "Install pytesseract (~1MB) instead?" with link to Tesseract binary.
-4. If all OCR tools unavailable -> route to Vision OCR (see below).
 
-**Vision OCR fallback** (last resort for scanned pages):
+Run the bundled OCR shim script:
+```
+python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_ocr.py "<pdf_path>" --scan _distill_scan.json --output _distill_ocr.pdf [--pages 0,1,5]
+```
+
+The script auto-detects the best available backend and reports which was used:
+
+| Exit code | Meaning | Next step |
+|-----------|---------|-----------|
+| 0, `OUTPUT_TYPE: pdf` | OCRmyPDF succeeded — output is a searchable PDF | Re-run `distill_extract.py` on the OCR'd PDF instead of the original |
+| 0, `OUTPUT_TYPE: text` | pytesseract succeeded — output is a text file | Use the text file directly (merge with `_distill_text.txt` for non-scanned pages) |
+| 2 | No OCR backend available | Trigger Demand-Install Protocol (see below), then fall back to Vision OCR |
+| 1 | OCR error | Log in Known Issues, fall back to Vision OCR |
+
+**Demand-Install for OCR** (exit code 2):
+
+**⚠ MANDATORY POPUP**: Offer OCR tool installation:
+- "Install OCRmyPDF (~5MB + Tesseract binary)" — best option, adds text layer to PDF
+- "Install pytesseract (~1MB + Tesseract binary)" — lighter, direct text extraction
+- "Skip — use vision OCR instead" — expensive but no install needed
+
+**⚠ FULL STOP** — see parent skill ENFORCEMENT RULE.
+
+**If user specifies pages** (via `--pages`): pass only those page indices to the OCR script. This respects the Figure Budget Gate choices from Phase 1.5.
+
+**Vision OCR fallback** (last resort for scanned pages — when OCR shim exits 1 or 2 and user declines install):
 - Render pages as images via `page.get_pixmap(dpi=200)` and read via Claude vision.
 - **Batch in chunks of 5 pages** (not one-by-one). Print progress: "OCR via vision: pages 1-5 of [N]..."
 - After each batch: if pages are purely decorative (blank, dividers, repetitive headers), note and skip similar pages in remaining batches.
@@ -360,9 +381,10 @@ When a specialist tool is needed but not installed, and its tooling profile stat
 2. **Explain what the tool does**: One sentence on its capability for this content.
 3. **Offer install** via `AskUserQuestion` with options: "Install [tool] now" / "Skip — use fallback". For tools that may be needed later, add "Install later when needed" as a third option. Include exact command and size:
    - pdfplumber: `pip install pdfplumber` (<1MB)
+   - ocrmypdf: `pip install ocrmypdf` (~5MB) + Tesseract binary (Windows: https://github.com/UB-Mannheim/tesseract/wiki; Linux: `apt install tesseract-ocr`; macOS: `brew install tesseract`). **Recommended for scanned PDFs** — adds invisible text layer, then PyMuPDF reads normally
    - Docling: `pip install docling` (~500MB model on first use)
    - Marker: `pip install marker-pdf` (~200MB, optional GPU)
-   - pytesseract: `pip install pytesseract` (<1MB) + Tesseract binary (Windows: https://github.com/UB-Mannheim/tesseract/wiki; Linux: `apt install tesseract-ocr`; macOS: `brew install tesseract`)
+   - pytesseract: `pip install pytesseract` (<1MB) + Tesseract binary (same as ocrmypdf)
    - GROBID: `docker pull lfoppiano/grobid:0.8.1 && docker run -d --name grobid -p 8070:8070 lfoppiano/grobid:0.8.1` (~2GB)
    - yt-dlp: `pip install yt-dlp` (~10MB, required for YouTube)
    - faster-whisper: `pip install faster-whisper` (<5MB install, ~150MB model on first use)
