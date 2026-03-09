@@ -43,6 +43,13 @@ needed to orient.
 - `alpha-validate --buffer-dir .claude/buffer/` — Check alpha bin integrity (index vs files on disk).
 - `alpha-write --buffer-dir .claude/buffer/` — Write new alpha entries (JSON on stdin → `.md` files + `index.json` update). Used by `/distill` and `/buffer:off`.
 - `alpha-delete --buffer-dir .claude/buffer/ --id w:N cw:N` — Remove alpha entries (files + index cleanup). Used by `/buffer:off` consolidation.
+- `alpha-reinforce --buffer-dir .claude/buffer/` — Compute reinforcement scores + cw_graph from convergence_web adjacency. Writes to index.json.
+- `alpha-clusters --buffer-dir .claude/buffer/` — Compute cluster analysis from cw_graph (requires `alpha-reinforce` first).
+- `alpha-neighborhood --buffer-dir .claude/buffer/ --id w:N [--hops 2]` — Traverse convergence_web neighborhood from a given ID.
+- `alpha-health --buffer-dir .claude/buffer/` — Generate alpha bin health report (Youn ratio, primes, clusters, staleness).
+- `alpha-grid-build --buffer-dir .claude/buffer/` — Build mesological relevance grid (pre-computed alpha*sigma scores for O(1) lookup).
+
+**Convergence types**: `[convergence]` (default), `[divergence]`, `[tension]`, `[wall]` (anti-conflation — marks concepts that look similar but MUST NOT be conflated; acts as an inhibitory edge that breaks conceptual feedback loops).
 
 **Manual steps**: git grounding (2), full-scan check (5), instance notes presentation (6), MEMORY.md (7), autosave arming (8).
 

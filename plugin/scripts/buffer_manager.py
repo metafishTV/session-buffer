@@ -1867,6 +1867,562 @@ def cmd_alpha_validate(args):
 
 
 # ---------------------------------------------------------------------------
+# Subcommand: alpha-reinforce
+# ---------------------------------------------------------------------------
+
+def _parse_cw_concept(concept_str):
+    """Parse a cw: concept field into (thesis_key, athesis_key).
+
+    Format: 'Source:concept_a x Source:concept_b'
+    Returns (concept_a_lower, concept_b_lower) with source prefixes stripped.
+    Returns (None, None) if unparseable.
+    """
+    parts = concept_str.split(' x ')
+    if len(parts) != 2:
+        return None, None
+    keys = []
+    for part in parts:
+        part = part.strip()
+        if ':' in part:
+            part = part.split(':', 1)[1]
+        keys.append(part.lower())
+    return keys[0], keys[1]
+
+
+def _resolve_concept_to_wids(concept_key, concept_index, entries):
+    """Resolve a concept name (lowercase) to w: IDs.
+
+    Tries: exact concept_index match, case-insensitive concept_index scan,
+    normalized match (underscores/hyphens/slashes), then substring match
+    against w: entries' concept fields.
+    """
+    if concept_key in concept_index:
+        return concept_index[concept_key]
+    # Case-insensitive exact match
+    for idx_key, wids in concept_index.items():
+        if idx_key == '?':
+            continue
+        if concept_key == idx_key.lower():
+            return wids
+    # Normalized match: collapse separators for near-misses
+    def _normalize(s):
+        return s.lower().replace('-', '_').replace('/', '_').replace('+', '_').replace(' ', '_')
+    norm_key = _normalize(concept_key)
+    for idx_key, wids in concept_index.items():
+        if idx_key == '?':
+            continue
+        if norm_key == _normalize(idx_key):
+            return wids
+    # Direct match against w: entry concept fields
+    results = []
+    for eid, einfo in entries.items():
+        if not eid.startswith('w:'):
+            continue
+        econcept = einfo.get('concept', '')
+        econcept_name = econcept.split(':', 1)[1].lower() if ':' in econcept else econcept.lower()
+        if concept_key == econcept_name or norm_key == _normalize(econcept_name):
+            results.append(eid)
+    if results:
+        return results
+    # Substring containment: last resort for partial matches
+    for eid, einfo in entries.items():
+        if not eid.startswith('w:'):
+            continue
+        econcept = einfo.get('concept', '')
+        econcept_name = econcept.split(':', 1)[1].lower() if ':' in econcept else econcept.lower()
+        enorm = _normalize(econcept_name)
+        if len(norm_key) >= 5 and (norm_key in enorm or enorm in norm_key):
+            results.append(eid)
+    return results
+
+
+def build_cw_graph(entries, concept_index):
+    """Build adjacency graph from convergence_web entries.
+
+    Returns:
+        cw_edges: {cw_id: {'thesis': w_id, 'athesis': w_id}}
+        w_to_cw: {w_id: set(cw_ids)}
+        unresolved: [cw_ids with unparseable concepts]
+    """
+    cw_edges = {}
+    w_to_cw = {}
+    unresolved = []
+    for eid, einfo in entries.items():
+        if not eid.startswith('cw:'):
+            continue
+        if einfo.get('type') != 'convergence_web':
+            continue
+        concept_str = einfo.get('concept', '')
+        thesis_key, athesis_key = _parse_cw_concept(concept_str)
+        if thesis_key is None or athesis_key is None:
+            unresolved.append(eid)
+            continue
+        thesis_wids = _resolve_concept_to_wids(thesis_key, concept_index, entries)
+        athesis_wids = _resolve_concept_to_wids(athesis_key, concept_index, entries)
+        if not thesis_wids or not athesis_wids:
+            unresolved.append(eid)
+            continue
+        t_wid = thesis_wids[0]
+        a_wid = athesis_wids[0]
+        cw_edges[eid] = {'thesis': t_wid, 'athesis': a_wid}
+        w_to_cw.setdefault(t_wid, set()).add(eid)
+        w_to_cw.setdefault(a_wid, set()).add(eid)
+    return cw_edges, w_to_cw, unresolved
+
+
+def compute_reinforcement(entries, concept_index, sources_data):
+    """Compute reinforcement degree and prime status for each w: entry.
+
+    Returns:
+        reinforcement: {w_id: {'degree': int, 'source_diversity': int, 'is_prime': bool}}
+        cw_edges: resolved graph from build_cw_graph
+        unresolved: list of unresolvable cw: IDs
+    """
+    cw_edges, w_to_cw, unresolved = build_cw_graph(entries, concept_index)
+    reinforcement = {}
+    nonzero_degrees = []
+    for eid in entries:
+        if not eid.startswith('w:'):
+            continue
+        cw_set = w_to_cw.get(eid, set())
+        degree = len(cw_set)
+        linked_sources = set()
+        for cw_id in cw_set:
+            edge = cw_edges.get(cw_id, {})
+            other_wid = edge.get('thesis') if edge.get('athesis') == eid else edge.get('athesis')
+            if other_wid and other_wid in entries:
+                linked_sources.add(entries[other_wid].get('source', ''))
+        reinforcement[eid] = {
+            'degree': degree,
+            'source_diversity': len(linked_sources),
+            'is_prime': False,
+        }
+        if degree > 0:
+            nonzero_degrees.append(degree)
+    # Prime threshold: median of nonzero degrees + source diversity >= 2
+    if nonzero_degrees:
+        sorted_deg = sorted(nonzero_degrees)
+        prime_threshold = sorted_deg[len(sorted_deg) // 2]
+    else:
+        prime_threshold = 1
+    for eid, rdata in reinforcement.items():
+        if rdata['degree'] >= prime_threshold and rdata['source_diversity'] >= 2:
+            rdata['is_prime'] = True
+    return reinforcement, cw_edges, unresolved
+
+
+def cmd_alpha_reinforce(args):
+    """Compute reinforcement scores and cw_graph, write to index.json."""
+    buf_dir = Path(args.buffer_dir)
+    index = read_alpha_index(buf_dir)
+    if not index:
+        print(json.dumps({'status': 'error', 'message': 'No alpha bin found'}))
+        return
+    entries = index.get('entries', {})
+    concept_index = index.get('concept_index', {})
+    sources_data = index.get('sources', {})
+    reinforcement, cw_edges, unresolved = compute_reinforcement(
+        entries, concept_index, sources_data)
+    primes = [eid for eid, r in reinforcement.items() if r['is_prime']]
+    max_degree = max((r['degree'] for r in reinforcement.values()), default=0)
+    result_summary = {
+        'total_scored': len(reinforcement),
+        'cw_edges_resolved': len(cw_edges),
+        'unresolved_cw': len(unresolved),
+        'primes_identified': len(primes),
+        'max_reinforcement_degree': max_degree,
+    }
+    if unresolved:
+        result_summary['unresolved_ids'] = unresolved[:10]
+    if args.dry_run:
+        top = sorted(reinforcement.items(),
+                     key=lambda x: x[1]['degree'], reverse=True)[:20]
+        result_summary['top_20'] = [
+            {'id': eid, **rdata,
+             'concept': entries.get(eid, {}).get('concept', '?')}
+            for eid, rdata in top
+        ]
+        print(json.dumps(result_summary, indent=2))
+        return
+    from datetime import datetime
+    index['reinforcement'] = reinforcement
+    index['cw_graph'] = cw_edges
+    index['reinforcement_computed'] = datetime.now().strftime('%Y-%m-%d')
+    idx_path = alpha_index_path(buf_dir)
+    write_json(idx_path, index)
+    result_summary['status'] = 'ok'
+    result_summary['message'] = (
+        f"Wrote reinforcement ({len(reinforcement)} entries) + "
+        f"cw_graph ({len(cw_edges)} edges) to index.json"
+    )
+    print(json.dumps(result_summary, indent=2))
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: alpha-clusters
+# ---------------------------------------------------------------------------
+
+def compute_clusters(cw_edges, reinforcement_data, entries):
+    """Compute connected components from cw: adjacency via BFS.
+
+    Returns list of cluster dicts + w_to_cluster mapping.
+    """
+    # Build undirected adjacency list from cw edges
+    adj = {}
+    for cw_id, edge in cw_edges.items():
+        t, a = edge['thesis'], edge['athesis']
+        adj.setdefault(t, set()).add(a)
+        adj.setdefault(a, set()).add(t)
+
+    visited = set()
+    clusters = []
+
+    for start_node in sorted(adj.keys()):
+        if start_node in visited:
+            continue
+        # BFS
+        component = set()
+        queue = [start_node]
+        while queue:
+            node = queue.pop(0)
+            if node in component:
+                continue
+            component.add(node)
+            visited.add(node)
+            for neighbor in adj.get(node, set()):
+                if neighbor not in component:
+                    queue.append(neighbor)
+
+        members = sorted(component)
+
+        # Internal edges: cw edges where BOTH endpoints are in this component
+        internal_edges = []
+        bridge_edges = []
+        for cw_id, edge in cw_edges.items():
+            t_in = edge['thesis'] in component
+            a_in = edge['athesis'] in component
+            if t_in and a_in:
+                internal_edges.append(cw_id)
+            elif t_in or a_in:
+                bridge_edges.append(cw_id)
+
+        # Internal density: actual edges / possible edges
+        n = len(members)
+        possible = n * (n - 1) / 2 if n > 1 else 1
+        internal_density = round(len(internal_edges) / possible, 3)
+
+        # Hubs: members with reinforcement >= cluster median
+        member_degrees = [
+            reinforcement_data.get(m, {}).get('degree', 0) for m in members
+        ]
+        if member_degrees:
+            sorted_md = sorted(member_degrees)
+            cluster_median = sorted_md[len(sorted_md) // 2]
+        else:
+            cluster_median = 0
+
+        hubs = [
+            m for m in members
+            if reinforcement_data.get(m, {}).get('degree', 0) >= max(cluster_median, 1)
+        ]
+
+        # Derive name from top hub concepts
+        hub_concepts = []
+        for h in hubs[:2]:
+            c = entries.get(h, {}).get('concept', h)
+            if ':' in c:
+                c = c.split(':', 1)[1]
+            hub_concepts.append(c.lower().replace(' ', '_')[:25])
+        name = '-'.join(hub_concepts) if hub_concepts else f'cluster_{len(clusters)}'
+
+        clusters.append({
+            'id': len(clusters),
+            'name': name,
+            'members': members,
+            'hubs': sorted(hubs),
+            'cw_edges': sorted(internal_edges),
+            'internal_density': internal_density,
+            'bridge_count': len(bridge_edges),
+            'size': n,
+        })
+
+    # w_to_cluster mapping
+    w_to_cluster = {}
+    for cluster in clusters:
+        for m in cluster['members']:
+            w_to_cluster[m] = cluster['id']
+
+    return clusters, w_to_cluster
+
+
+def cmd_alpha_clusters(args):
+    """Compute cluster analysis from convergence_web adjacency."""
+    buf_dir = Path(args.buffer_dir)
+    index = read_alpha_index(buf_dir)
+    if not index:
+        print(json.dumps({'status': 'error', 'message': 'No alpha bin found'}))
+        return
+
+    # Requires reinforcement data (run alpha-reinforce first)
+    cw_edges = index.get('cw_graph', {})
+    reinforcement = index.get('reinforcement', {})
+    if not cw_edges:
+        print(json.dumps({
+            'status': 'error',
+            'message': 'No cw_graph found. Run alpha-reinforce first.'
+        }))
+        return
+
+    entries = index.get('entries', {})
+    clusters, w_to_cluster = compute_clusters(cw_edges, reinforcement, entries)
+
+    result_summary = {
+        'total_clusters': len(clusters),
+        'largest_cluster': max((c['size'] for c in clusters), default=0),
+        'isolates': len([eid for eid in entries
+                         if eid.startswith('w:') and eid not in w_to_cluster]),
+        'cluster_names': [c['name'] for c in clusters],
+    }
+
+    if args.dry_run:
+        result_summary['clusters'] = clusters
+        print(json.dumps(result_summary, indent=2))
+        return
+
+    from datetime import datetime
+    index['clusters'] = clusters
+    index['w_to_cluster'] = w_to_cluster
+    index['clusters_computed'] = datetime.now().strftime('%Y-%m-%d')
+
+    idx_path = alpha_index_path(buf_dir)
+    write_json(idx_path, index)
+    result_summary['status'] = 'ok'
+    result_summary['message'] = f'Wrote {len(clusters)} clusters to index.json'
+    print(json.dumps(result_summary, indent=2))
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: alpha-neighborhood
+# ---------------------------------------------------------------------------
+
+def traverse_neighborhood(start_id, cw_edges, entries, reinforcement_data,
+                          max_hops=2):
+    """BFS traversal from a w: or cw: ID through convergence_web edges.
+
+    Returns subgraph with distance and reinforcement annotations.
+    Weights by walk distance: score = degree / (1 + distance).
+    """
+    # If start_id is a cw: entry, expand to its thesis + athesis
+    start_nodes = set()
+    if start_id.startswith('cw:') and start_id in cw_edges:
+        edge = cw_edges[start_id]
+        start_nodes.add(edge['thesis'])
+        start_nodes.add(edge['athesis'])
+    elif start_id.startswith('w:'):
+        start_nodes.add(start_id)
+    else:
+        return {'error': f'Unknown ID format: {start_id}'}
+
+    # Build undirected adjacency with cw edge labels
+    adj = {}  # w_id -> [(neighbor_w_id, cw_id), ...]
+    for cw_id, edge in cw_edges.items():
+        t, a = edge['thesis'], edge['athesis']
+        adj.setdefault(t, []).append((a, cw_id))
+        adj.setdefault(a, []).append((t, cw_id))
+
+    # BFS with distance tracking
+    nodes = {}
+    edges_out = []
+    queue = [(n, 0) for n in start_nodes]
+    visited = set()
+
+    for n in start_nodes:
+        rdata = reinforcement_data.get(n, {})
+        concept = entries.get(n, {}).get('concept', '?')
+        nodes[n] = {
+            'distance': 0,
+            'reinforcement': rdata.get('degree', 0),
+            'is_prime': rdata.get('is_prime', False),
+            'concept': concept,
+            'weighted_score': round(rdata.get('degree', 0) / 1.0, 2),
+        }
+        visited.add(n)
+
+    while queue:
+        current, dist = queue.pop(0)
+        if dist >= max_hops:
+            continue
+        for neighbor, cw_id in adj.get(current, []):
+            edges_out.append({
+                'cw': cw_id, 'from': current, 'to': neighbor, 'hop': dist + 1
+            })
+            if neighbor not in visited:
+                visited.add(neighbor)
+                rdata = reinforcement_data.get(neighbor, {})
+                concept = entries.get(neighbor, {}).get('concept', '?')
+                degree = rdata.get('degree', 0)
+                nodes[neighbor] = {
+                    'distance': dist + 1,
+                    'reinforcement': degree,
+                    'is_prime': rdata.get('is_prime', False),
+                    'concept': concept,
+                    'weighted_score': round(degree / (1 + dist + 1), 2),
+                }
+                queue.append((neighbor, dist + 1))
+
+    return {
+        'center': start_id,
+        'nodes': nodes,
+        'edges': edges_out,
+        'total_nodes': len(nodes),
+        'total_edges': len(edges_out),
+    }
+
+
+def cmd_alpha_neighborhood(args):
+    """Traverse convergence_web neighborhood from a given ID."""
+    buf_dir = Path(args.buffer_dir)
+    index = read_alpha_index(buf_dir)
+    if not index:
+        print(json.dumps({'status': 'error', 'message': 'No alpha bin found'}))
+        return
+    cw_edges = index.get('cw_graph', {})
+    reinforcement = index.get('reinforcement', {})
+    if not cw_edges:
+        print(json.dumps({
+            'status': 'error',
+            'message': 'No cw_graph found. Run alpha-reinforce first.'
+        }))
+        return
+    entries = index.get('entries', {})
+    result = traverse_neighborhood(
+        args.id, cw_edges, entries, reinforcement, max_hops=args.hops)
+    print(json.dumps(result, indent=2))
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: alpha-health
+# ---------------------------------------------------------------------------
+
+def cmd_alpha_health(args):
+    """Generate alpha bin health diagnostics report."""
+    buf_dir = Path(args.buffer_dir)
+    index = read_alpha_index(buf_dir)
+    if not index:
+        print("Alpha bin not found.")
+        return
+
+    entries = index.get('entries', {})
+    reinforcement = index.get('reinforcement', {})
+    cw_edges = index.get('cw_graph', {})
+    clusters = index.get('clusters', [])
+
+    w_count = sum(1 for e in entries if e.startswith('w:'))
+    cw_count = sum(1 for e in entries if e.startswith('cw:'))
+    possible_pairs = w_count * (w_count - 1) / 2 if w_count > 1 else 1
+    youn_ratio = round(cw_count / possible_pairs, 6) if possible_pairs > 0 else 0
+
+    # Type diversity: parse [type_tag] from cw concept fields or cw .md files
+    type_counts = {}
+    for cw_id in cw_edges:
+        einfo = entries.get(cw_id, {})
+        concept = einfo.get('concept', '')
+        # Type tags are stored in cw .md files, not index — approximate from source
+        source = einfo.get('source', 'unknown')
+        type_counts[source] = type_counts.get(source, 0) + 1
+
+    # Prime report
+    primes = sorted(
+        [(eid, r) for eid, r in reinforcement.items() if r.get('is_prime')],
+        key=lambda x: x[1]['degree'], reverse=True
+    )
+
+    # Staleness check
+    hits_path = buf_dir / '.sigma_hits'
+    referenced = set()
+    if hits_path.exists():
+        try:
+            with open(hits_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    parts = line.strip().split()
+                    referenced.update(p for p in parts if p.startswith('w:'))
+        except OSError:
+            pass
+
+    stale = [eid for eid in reinforcement
+             if eid not in referenced and reinforcement[eid]['degree'] > 0]
+
+    # Output report
+    lines = [
+        "=" * 60,
+        "ALPHA BIN HEALTH REPORT",
+        "=" * 60,
+        "",
+        f"Total w: entries:  {w_count}",
+        f"Total cw: entries: {cw_count}",
+        f"CW graph edges:    {len(cw_edges)}",
+        f"Clusters:          {len(clusters)}",
+        "",
+        f"Bin Youn ratio:    {youn_ratio} (actual_cw / possible_pairs)",
+        f"  ({cw_count} / {int(possible_pairs)})",
+        "",
+        "--- PRIMES (top 20 by reinforcement degree) ---",
+    ]
+    for eid, rdata in primes[:20]:
+        concept = entries.get(eid, {}).get('concept', '?')
+        lines.append(
+            f"  {eid:8s} deg={rdata['degree']:2d}  "
+            f"div={rdata['source_diversity']:2d}  {concept}"
+        )
+
+    if clusters:
+        lines.append("")
+        lines.append("--- CLUSTERS ---")
+        for c in clusters:
+            lines.append(
+                f"  #{c['id']:2d} {c['name'][:35]:35s}  "
+                f"size={c['size']:3d}  density={c['internal_density']:.2f}  "
+                f"bridges={c['bridge_count']}"
+            )
+
+    if stale:
+        lines.append("")
+        lines.append(f"--- STALE CONCEPTS ({len(stale)} never referenced by sigma hook) ---")
+        for eid in stale[:10]:
+            concept = entries.get(eid, {}).get('concept', '?')
+            lines.append(f"  {eid:8s} {concept}")
+        if len(stale) > 10:
+            lines.append(f"  ... and {len(stale) - 10} more")
+
+    lines.append("")
+    lines.append("=" * 60)
+    print("\n".join(lines))
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: alpha-grid-build (thin wrapper for grid_builder.py)
+# ---------------------------------------------------------------------------
+
+def cmd_alpha_grid_build(args):
+    """Build the mesological relevance grid (delegates to grid_builder.py)."""
+    import subprocess
+    script_dir = Path(__file__).resolve().parent
+    grid_script = script_dir / 'grid_builder.py'
+    if not grid_script.exists():
+        print(json.dumps({'status': 'error', 'message': 'grid_builder.py not found'}))
+        sys.exit(1)
+    cmd = [sys.executable, str(grid_script),
+           '--buffer-dir', str(args.buffer_dir)]
+    if getattr(args, 'dry_run', False):
+        cmd.append('--dry-run')
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    print(result.stdout, end='')
+    if result.stderr:
+        print(result.stderr, end='', file=sys.stderr)
+    sys.exit(result.returncode)
+
+
+# ---------------------------------------------------------------------------
 # Subcommand: alpha-write
 # ---------------------------------------------------------------------------
 
@@ -2415,6 +2971,41 @@ def main():
     p_alpha_val = subparsers.add_parser('alpha-validate', parents=[buf_parent],
         help='Validate alpha bin integrity (index vs files on disk)')
     p_alpha_val.set_defaults(func=cmd_alpha_validate)
+
+    # --- alpha-reinforce ---
+    p_alpha_reinforce = subparsers.add_parser('alpha-reinforce', parents=[buf_parent],
+        help='Compute reinforcement scores and cw_graph from convergence_web')
+    p_alpha_reinforce.add_argument('--dry-run', action='store_true',
+                                    help='Show results without writing to index.json')
+    p_alpha_reinforce.set_defaults(func=cmd_alpha_reinforce)
+
+    # --- alpha-clusters ---
+    p_alpha_clusters = subparsers.add_parser('alpha-clusters', parents=[buf_parent],
+        help='Compute cluster analysis from convergence_web adjacency (requires alpha-reinforce)')
+    p_alpha_clusters.add_argument('--dry-run', action='store_true',
+                                   help='Show results without writing to index.json')
+    p_alpha_clusters.set_defaults(func=cmd_alpha_clusters)
+
+    # --- alpha-neighborhood ---
+    p_alpha_nbr = subparsers.add_parser('alpha-neighborhood', parents=[buf_parent],
+        help='Traverse convergence_web neighborhood from a given ID')
+    p_alpha_nbr.add_argument('--id', required=True,
+                              help='Starting w: or cw: ID (e.g., w:125)')
+    p_alpha_nbr.add_argument('--hops', type=int, default=2,
+                              help='Max traversal hops (default: 2)')
+    p_alpha_nbr.set_defaults(func=cmd_alpha_neighborhood)
+
+    # --- alpha-health ---
+    p_alpha_health = subparsers.add_parser('alpha-health', parents=[buf_parent],
+        help='Generate alpha bin health diagnostics report')
+    p_alpha_health.set_defaults(func=cmd_alpha_health)
+
+    # --- alpha-grid-build ---
+    p_alpha_grid = subparsers.add_parser('alpha-grid-build', parents=[buf_parent],
+        help='Build mesological relevance grid (pre-computed alpha*sigma scores)')
+    p_alpha_grid.add_argument('--dry-run', action='store_true',
+                               help='Print grid to stdout without writing file')
+    p_alpha_grid.set_defaults(func=cmd_alpha_grid_build)
 
     args = parser.parse_args()
     if not args.command:

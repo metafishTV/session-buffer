@@ -9,6 +9,7 @@ Fires on every user message. Cascades through sigma layers:
 Gates (exit-early, zero token cost):
   0a. Post-compaction relay: inject buffer summary if .compact_marker present
   0b. Distill-active: skip entirely when .distill_active marker present
+  0c. Grid lookup: pre-computed relevance grid (O(1) if grid exists, skip IDF)
   1. Suppress list: .sigma_suppress file lists concepts/threads to ignore
   2. Staleness gate: skip hot level when buffer already loaded this session
   3. IDF-weighted scoring: keyword weight = 1/n (n = concept matches in corpus)
@@ -604,6 +605,84 @@ def check_compact_relay(buffer_dir, cwd):
 
 
 # ---------------------------------------------------------------------------
+# GATE 0c: Grid lookup (pre-computed relevance grid)
+# ---------------------------------------------------------------------------
+
+def try_grid_lookup(buffer_dir, keywords):
+    """Try to match keywords against pre-computed relevance grid.
+
+    Reads relevance_grid.json, matches keywords against keyword_index,
+    picks best cell, returns formatted concepts. Returns None if no grid
+    or no match (fall through to existing IDF scoring).
+    """
+    grid_path = os.path.join(buffer_dir, 'relevance_grid.json')
+    if not os.path.isfile(grid_path):
+        return None
+
+    try:
+        with open(grid_path, 'r', encoding='utf-8') as f:
+            grid = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+    keyword_index = grid.get('keyword_index', {})
+    cells = grid.get('cells', {})
+    if not keyword_index or not cells:
+        return None
+
+    # Score each cell by keyword hit count
+    cell_scores = {}
+    for kw in keywords:
+        kw_lower = kw.lower()
+        matching_cells = keyword_index.get(kw_lower, [])
+        for cell_key in matching_cells:
+            cell_scores[cell_key] = cell_scores.get(cell_key, 0) + 1
+
+    if not cell_scores:
+        return None
+
+    # Pick best cell (highest keyword hits, prefer thread over global)
+    best_cell = max(cell_scores, key=lambda k: (cell_scores[k], k != 'global'))
+    cell_data = cells.get(best_cell, {})
+    concepts = cell_data.get('concepts', [])
+    if not concepts:
+        return None
+
+    # Format: "sigma grid: w:62 alterity (Levinas) | w:73 rhizomatic (DG)"
+    parts = []
+    for c in concepts[:5]:
+        concept_name = c.get('concept', '?')
+        if ':' in concept_name:
+            source_prefix, name = concept_name.split(':', 1)
+        else:
+            source_prefix, name = '?', concept_name
+        name_clean = name.replace('_', ' ')
+        parts.append(f"{c['id']} {name_clean} ({source_prefix})")
+
+    concept_ids = [c['id'] for c in concepts[:5]]
+    injection = f"sigma grid [{best_cell}]: {' | '.join(parts)}"
+    return injection, concept_ids
+
+
+def record_grid_hit(buffer_dir, concept_ids):
+    """Append grid hit to .sigma_hits log for temporal tracking.
+
+    Format: one line per hit — "2026-03-09 w:62 w:125"
+    Append-only; cleared at grid rebuild.
+    """
+    if not concept_ids:
+        return
+    from datetime import date
+    hits_path = os.path.join(buffer_dir, '.sigma_hits')
+    try:
+        line = f"{date.today()} {' '.join(concept_ids)}\n"
+        with open(hits_path, 'a', encoding='utf-8') as f:
+            f.write(line)
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Main — gated cascade
 # ---------------------------------------------------------------------------
 
@@ -634,6 +713,15 @@ def main():
     keywords = extract_keywords(user_prompt)
     if not keywords:
         emit_empty()
+
+    # GATE 0c: Grid lookup — pre-computed relevance grid (O(1) lookup)
+    # If grid exists and produces a hit, emit directly (skip IDF scoring).
+    # If no grid or no hit, fall through to existing behavior.
+    grid_result = try_grid_lookup(buffer_dir, keywords)
+    if grid_result is not None:
+        injection, concept_ids = grid_result
+        record_grid_hit(buffer_dir, concept_ids)
+        emit({"suppressOutput": True, "systemMessage": injection})
 
     # GATE 1: Load suppress list (zero cost if file absent)
     suppress_list = load_suppress_list(buffer_dir)
