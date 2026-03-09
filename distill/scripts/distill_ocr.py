@@ -1,42 +1,125 @@
 #!/usr/bin/env python3
-"""OCR shim for scanned PDFs — tries backends in order of preference.
+"""OCR shim for scanned PDFs -- tries backends in order of preference.
 
 Usage:
     python distill_ocr.py <pdf_path> --scan _distill_scan.json --output _distill_ocr.pdf [--pages 0,1,5]
 
 Backends (tried in order):
-  1. ocrmypdf  — adds invisible text layer to PDF, output is an OCR'd PDF
-  2. pytesseract — renders pages via PyMuPDF, OCRs each, writes text file
-  3. (none) — exits with code 2, signaling the SKILL to use vision fallback
+  1. rapidocr     -- pure pip, no system binary needed (~80-100MB with onnxruntime)
+  2. ocrmypdf     -- adds invisible text layer to PDF (requires Tesseract binary)
+  3. pytesseract  -- renders pages via PyMuPDF, OCRs each (requires Tesseract binary)
+  4. (none)       -- exits with code 2, signaling the SKILL to use vision fallback
 
 Output:
   --output path receives either an OCR'd PDF (ocrmypdf) or a UTF-8 text file
-  (pytesseract). The script prints which backend was used and the page count.
+  (all others). The script prints which backend was used and the page count.
   Exit code 0 = success, 1 = error, 2 = no backend available.
 """
 
 import argparse
 import json
-import os
 import sys
-import tempfile
 
 
 def detect_backend():
     """Return the best available OCR backend name."""
+    # 1. RapidOCR (new package name, v3+)
+    try:
+        from rapidocr import RapidOCR
+        return "rapidocr"
+    except ImportError:
+        pass
+    # 2. RapidOCR (old package name)
+    try:
+        from rapidocr_onnxruntime import RapidOCR
+        return "rapidocr_onnxruntime"
+    except ImportError:
+        pass
+    # 3. OCRmyPDF (requires Tesseract binary)
     try:
         import ocrmypdf
         return "ocrmypdf"
     except ImportError:
         pass
+    # 4. pytesseract (requires Tesseract binary)
     try:
         import pytesseract
-        # Verify tesseract binary is reachable
         pytesseract.get_tesseract_version()
         return "pytesseract"
     except Exception:
         pass
     return None
+
+
+def ocr_with_rapidocr(pdf_path, output_path, pages, scan_data, backend_pkg):
+    """Render scanned pages as images, OCR with RapidOCR, write text file."""
+    import pymupdf
+
+    # Import from whichever package is available
+    if backend_pkg == "rapidocr":
+        from rapidocr import RapidOCR
+    else:
+        from rapidocr_onnxruntime import RapidOCR
+
+    engine = RapidOCR()
+    doc = pymupdf.open(pdf_path)
+    scanned_pages = pages if pages is not None else scan_data.get("scanned", [])
+    text_parts = []
+
+    for i, page_num in enumerate(sorted(scanned_pages)):
+        if page_num >= len(doc):
+            continue
+        page = doc[page_num]
+        pix = page.get_pixmap(dpi=300)
+        img_bytes = pix.tobytes("png")
+
+        # RapidOCR accepts file path, bytes, or numpy array
+        result = engine(img_bytes)
+
+        # Extract text from result
+        page_lines = []
+        if backend_pkg == "rapidocr":
+            # v3+ API: result is an object, iterate for text
+            try:
+                # Try v3 API: result has .txts or iterate directly
+                if hasattr(result, 'txts') and result.txts:
+                    page_lines = list(result.txts)
+                elif result is not None:
+                    # Fallback: iterate result items
+                    for item in result:
+                        if hasattr(item, 'text'):
+                            page_lines.append(item.text)
+                        elif isinstance(item, (list, tuple)) and len(item) >= 2:
+                            page_lines.append(str(item[1]))
+            except (TypeError, AttributeError):
+                page_lines = [str(result)]
+        else:
+            # Old API: engine() returns (result_list, elapse)
+            # result_list items are [bbox, text, confidence]
+            if result and isinstance(result, tuple):
+                result_list = result[0]
+                if result_list:
+                    for item in result_list:
+                        if isinstance(item, (list, tuple)) and len(item) >= 2:
+                            page_lines.append(str(item[1]))
+
+        page_text = "\n".join(page_lines) if page_lines else "[no text detected]"
+        text_parts.append(
+            f"{'=' * 60}\nPAGE {page_num + 1} [ocr:rapidocr]\n{'=' * 60}\n{page_text}"
+        )
+        if (i + 1) % 5 == 0:
+            print(f"  OCR progress: {i + 1}/{len(scanned_pages)} pages...")
+
+    doc.close()
+
+    # Ensure output is .txt not .pdf
+    if output_path.endswith(".pdf"):
+        output_path = output_path.rsplit(".", 1)[0] + ".txt"
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n\n".join(text_parts))
+
+    return True, output_path
 
 
 def ocr_with_ocrmypdf(pdf_path, output_path, pages):
@@ -47,7 +130,7 @@ def ocr_with_ocrmypdf(pdf_path, output_path, pages):
         "input_file": pdf_path,
         "output_file": output_path,
         "skip_text": True,       # Don't re-OCR pages that already have text
-        "optimize": 0,           # No recompression — keep it fast
+        "optimize": 0,           # No recompression -- keep it fast
         "progress_bar": False,
     }
     if pages is not None:
@@ -82,17 +165,21 @@ def ocr_with_pytesseract(pdf_path, output_path, pages, scan_data):
 
     doc.close()
 
+    # Ensure output is .txt not .pdf
+    if output_path.endswith(".pdf"):
+        output_path = output_path.rsplit(".", 1)[0] + ".txt"
+
     with open(output_path, "w", encoding="utf-8") as f:
         f.write("\n\n".join(text_parts))
 
-    return True
+    return True, output_path
 
 
 def main():
     parser = argparse.ArgumentParser(description="OCR shim for scanned PDFs")
     parser.add_argument("pdf_path", help="Path to input PDF")
     parser.add_argument("--scan", required=True, help="Path to scan JSON from distill_scan.py")
-    parser.add_argument("--output", required=True, help="Output path (PDF for ocrmypdf, text for pytesseract)")
+    parser.add_argument("--output", required=True, help="Output path (PDF for ocrmypdf, text for others)")
     parser.add_argument("--pages", default=None, help="Comma-separated 0-based page indices (default: all scanned pages)")
     args = parser.parse_args()
 
@@ -106,10 +193,11 @@ def main():
     backend = detect_backend()
 
     if backend is None:
-        print("NO_BACKEND: Neither ocrmypdf nor pytesseract available.")
-        print("Install one of:")
-        print("  pip install ocrmypdf    (+ Tesseract binary)")
-        print("  pip install pytesseract (+ Tesseract binary)")
+        print("NO_BACKEND: No OCR backend available.")
+        print("Install one of (recommended first):")
+        print("  pip install rapidocr onnxruntime  (no system binary needed, ~80-100MB)")
+        print("  pip install ocrmypdf              (+ Tesseract binary, ~5MB)")
+        print("  pip install pytesseract           (+ Tesseract binary, <1MB)")
         sys.exit(2)
 
     scanned_count = len(pages) if pages else len(scan_data.get("scanned", []))
@@ -117,7 +205,18 @@ def main():
     print(f"Scanned pages to process: {scanned_count}")
 
     try:
-        if backend == "ocrmypdf":
+        if backend in ("rapidocr", "rapidocr_onnxruntime"):
+            success, out_path = ocr_with_rapidocr(
+                args.pdf_path, args.output, pages, scan_data, backend
+            )
+            if success:
+                print(f"OCR complete. Text written to {out_path}")
+                print("OUTPUT_TYPE: text")
+            else:
+                print("RapidOCR failed.", file=sys.stderr)
+                sys.exit(1)
+
+        elif backend == "ocrmypdf":
             success = ocr_with_ocrmypdf(args.pdf_path, args.output, pages)
             if success:
                 print(f"OCR complete. Searchable PDF written to {args.output}")
@@ -127,13 +226,14 @@ def main():
                 sys.exit(1)
 
         elif backend == "pytesseract":
-            # pytesseract outputs text, not PDF — adjust output extension
             text_output = args.output
             if text_output.endswith(".pdf"):
                 text_output = text_output.rsplit(".", 1)[0] + ".txt"
-            success = ocr_with_pytesseract(args.pdf_path, text_output, pages, scan_data)
+            success, out_path = ocr_with_pytesseract(
+                args.pdf_path, text_output, pages, scan_data
+            )
             if success:
-                print(f"OCR complete. Text written to {text_output}")
+                print(f"OCR complete. Text written to {out_path}")
                 print("OUTPUT_TYPE: text")
             else:
                 print("pytesseract OCR failed.", file=sys.stderr)

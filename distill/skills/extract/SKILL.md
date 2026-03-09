@@ -168,17 +168,17 @@ The script auto-detects the best available backend and reports which was used:
 
 | Exit code | Meaning | Next step |
 |-----------|---------|-----------|
-| 0, `OUTPUT_TYPE: pdf` | OCRmyPDF succeeded — output is a searchable PDF | Re-run `distill_extract.py` on the OCR'd PDF instead of the original |
-| 0, `OUTPUT_TYPE: text` | pytesseract succeeded — output is a text file | Use the text file directly (merge with `_distill_text.txt` for non-scanned pages) |
+| 0, `OUTPUT_TYPE: pdf` | OCRmyPDF succeeded -- output is a searchable PDF | Re-run `distill_extract.py` on the OCR'd PDF instead of the original |
+| 0, `OUTPUT_TYPE: text` | RapidOCR/pytesseract succeeded -- output is a text file | Use the text file directly (merge with `_distill_text.txt` for non-scanned pages) |
 | 2 | No OCR backend available | Trigger Demand-Install Protocol (see below), then fall back to Vision OCR |
 | 1 | OCR error | Log in Known Issues, fall back to Vision OCR |
 
 **Demand-Install for OCR** (exit code 2):
 
 **⚠ MANDATORY POPUP**: Offer OCR tool installation:
-- "Install OCRmyPDF (~5MB + Tesseract binary)" — best option, adds text layer to PDF
-- "Install pytesseract (~1MB + Tesseract binary)" — lighter, direct text extraction
-- "Skip — use vision OCR instead" — expensive but no install needed
+- "Install RapidOCR (~80-100MB, no system binary needed)" -- **recommended**, pure pip, PaddleOCR-quality
+- "Install OCRmyPDF (~5MB + Tesseract binary)" -- lighter install but requires system binary
+- "Skip -- use vision OCR instead" -- expensive but no install needed
 
 **⚠ FULL STOP** — see parent skill ENFORCEMENT RULE.
 
@@ -379,9 +379,10 @@ When a specialist tool is needed but not installed, and its tooling profile stat
 
 1. **Explain what was detected**: "This PDF contains [tables / multi-column layout / scanned pages / equations]."
 2. **Explain what the tool does**: One sentence on its capability for this content.
-3. **Offer install** via `AskUserQuestion` with options: "Install [tool] now" / "Skip — use fallback". For tools that may be needed later, add "Install later when needed" as a third option. Include exact command and size:
+3. **Offer install** via `AskUserQuestion` with options: "Install [tool] now" / "Skip -- use fallback". For tools that may be needed later, add "Install later when needed" as a third option. Include exact command and size:
+   - **rapidocr**: `pip install rapidocr onnxruntime` (~80-100MB total). **Recommended for scanned PDFs** -- pure pip, no system binary needed, PaddleOCR-quality results via ONNX. This is the preferred OCR backend.
+   - ocrmypdf: `pip install ocrmypdf` (~5MB) + Tesseract binary (Windows: https://github.com/UB-Mannheim/tesseract/wiki; Linux: `apt install tesseract-ocr`; macOS: `brew install tesseract`). Adds invisible text layer to PDF.
    - pdfplumber: `pip install pdfplumber` (<1MB)
-   - ocrmypdf: `pip install ocrmypdf` (~5MB) + Tesseract binary (Windows: https://github.com/UB-Mannheim/tesseract/wiki; Linux: `apt install tesseract-ocr`; macOS: `brew install tesseract`). **Recommended for scanned PDFs** — adds invisible text layer, then PyMuPDF reads normally
    - Docling: `pip install docling` (~500MB model on first use)
    - Marker: `pip install marker-pdf` (~200MB, optional GPU)
    - pytesseract: `pip install pytesseract` (<1MB) + Tesseract binary (same as ocrmypdf)
