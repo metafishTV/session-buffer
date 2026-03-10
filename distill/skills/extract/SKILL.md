@@ -311,13 +311,7 @@ If no browser tools: note `> Figures: not captured -- browser tools unavailable`
 
 **Step W5**: Hand off to analyze skill.
 
-**Distillation header for web sources**:
-```
-> Source: [Author], "[Title]", [Publication/Site], [date], URL: [url]
-> Date fetched: [YYYY-MM-DD]
-> Extraction: WebFetch [or browser render if W2 needed]
-> Completeness: [complete / partial -- describe limitation]
-```
+**Distillation header**: Use the canonical header format from `distill:analyze` (Source line variant: Web). Include `> Date fetched:` and `> URL:` fields.
 
 ### Route I -- Standalone Images (PNG, JPG, TIFF, etc.)
 
@@ -333,14 +327,7 @@ If no browser tools: note `> Figures: not captured -- browser tools unavailable`
 
 **Step I4**: Hand off to analyze skill. The "extraction" IS the decomposition for images.
 
-**Distillation header for image sources**:
-```
-> Source: [description]
-> Image file(s): [filename(s)]
-> Date distilled: [YYYY-MM-DD]
-> Extraction: Claude vision (multimodal Read)
-> Note: [if photo/scan] Text extraction approximate -- verify against original.
-```
+**Distillation header**: Use the canonical header format from `distill:analyze` (Source line variant: Image). Include `> Image file(s):` field.
 
 **No temp files created**: Web and image routes do not run bundled PDF scripts.
 
@@ -375,16 +362,7 @@ Uses faster-whisper. If not installed, trigger Demand-Install Protocol (`pip ins
 
 **Step R6**: Hand off to analyze skill. The timestamped transcript IS the extraction.
 
-**Distillation header for recordings**:
-```
-> Source: [Speaker], "[Title]", [Platform/Format], [date], URL: [url or path]
-> Duration: [HH:MM:SS]
-> Date distilled: [YYYY-MM-DD]
-> Extraction: [yt-dlp captions | yt-dlp + faster-whisper | faster-whisper (local)]
-> Language: [detected or specified]
-> Completeness: [complete / partial -- e.g., "auto-captions, ~90% accuracy"]
-> Source type: Recording
-```
+**Distillation header**: Use the canonical header format from `distill:analyze` (Source line variant: Recording). Include `> Duration:` and `> Language:` fields.
 
 ---
 
@@ -401,7 +379,7 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_figures.py "<pdf_path>" --scan _dis
 
 Uses three detection channels (vector drawings, raster images, caption-based), associates captions within 80pt, crops at dpi=200. Read `_manifest.json` to drive decomposition.
 
-**File naming**: `{type}_{NN}_p{P}.png` -- e.g., `fig_02_p16.png`, `tab_03_p34.png`, `eq_01_p9.png`, `page_{P}.png` (fallback).
+**File naming**: `{type}_{NN}_p{P}.png` — e.g., `fig_02_p16.png` (Figure 2, page 16), `tab_03_p34.png` (Table 3, page 34), `eq_01_p9.png` (Equation 1, page 9). Fallback: `page_{P}.png` (full-page render when cropping fails).
 
 **Tolerance tuning**: Default `x/y_tolerance=5`. If zero clusters on a known-figure page -> copy script to repo, adjust (10-15 for zero, 3 for fragments), note in Known Issues.
 

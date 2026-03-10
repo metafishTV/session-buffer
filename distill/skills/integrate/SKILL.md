@@ -36,13 +36,37 @@ MUST be written before Step 2 and removed in cleanup. If integration fails mid-w
 
 ### Step 1: INDEX.md Update
 
-Read the project index file. Add or update a row in the appropriate category table:
+Read the project index file. Add or update a row in the appropriate category table.
+
+**Canonical INDEX.md structure** (use this when creating a new index or verifying existing format):
 
 ```markdown
-| [Source-Label] | [Author(s)] | [source type] | [distilled/[Source-Label].md](distilled/[Source-Label].md) | [mapped concepts] | [notes] |
+# Source Material Index
+
+Status key: `unread` | `partial` | `mapped` | `foundational` | `distilled`
+
+All distilled versions are in `distilled/` subdirectory.
+
+## [Category Name]
+
+| File | Author | Status | Distilled | Mapped To | Notes |
+|---|---|---|---|---|---|
+| [source filename] | [Author(s)] | distilled | [Source-Label.md](distilled/[Source-Label].md) | [comma-separated concept mappings, e.g., "concept_a→framework_x, concept_b→framework_y"] | [interpretation link if exists] + [key stats: N key concepts, M project mappings (X confirms, Y extends, Z novel). N figures. N alpha entries (w:NNN–w:MMM), N convergence web entries (cw:NNN–cw:MMM). 1-2 sentence summary of what this source contributes] |
+
+## [Another Category]
+
+| File | Author | Status | Distilled | Mapped To | Notes |
+|---|---|---|---|---|---|
 ```
 
-For `project_map_type = none` or `pure_mode`: use `---` in mapped concepts column. If no index file exists, create one with a standard header and first row. INDEX.md always runs regardless of mode.
+**Category assignment**: Group sources by domain (e.g., "TAP Literature", "Philosophical Sources", "Empirical", "Web Resources"). If the source doesn't fit an existing category, create a new one. Each category has its own table with identical column headers.
+
+**Row format rules**:
+- `Mapped To`: Comma-separated `source_concept→project_element` pairs, truncated to ~5 most significant. Use `---` if `project_map_type = none` or `pure_mode`.
+- `Notes`: Start with interpretation link `[interpretation](interpretations/[Source-Label].md)` if one exists. Then key distillation stats. Then 1-2 sentences of substantive summary. This field IS the primary discovery interface — make it information-dense.
+- If redistilled, prefix notes with `**Re-distilled**`.
+
+If no index file exists, create one with the header above and the first row. INDEX.md always runs regardless of mode.
 
 ### Step 2: Buffer Update
 
@@ -315,9 +339,18 @@ When no buffer plugin is detected:
 
 After each distillation (both modes), update the project README at `<project>/.claude/skills/distill/README.md`:
 
-1. **Sources Distilled table**: add a row (label, date, route used, notes).
-2. **Glossary section**: mirror new terms added to the project skill's terminology glossary.
-3. **Tools Available table**: update if a new tool was installed during this distillation.
+1. **Sources Distilled table**: add a row using this format:
+   ```
+   | [Source-Label] | [YYYY-MM-DD] | [Route A-G / W / I / R] | [1-line: figures extracted, tools used, issues noted] |
+   ```
+   Example: `| Taalbi_LongRunPatterns_2025_Paper | 2026-03-01 | Route A | text-only, clean extraction, 12 key concepts |`
+
+2. **Glossary section**: mirror new terms added to the project skill's terminology glossary. Use the same table format:
+   ```
+   | [Term] | [1-2 sentence operational definition] | [Source-Label where first seen] |
+   ```
+
+3. **Tools Available table**: update if a new tool was installed during this distillation. Change status from `demand-install` to `installed: [version]`.
 
 If the README does not exist, generate it from the template established during differentiation.
 
@@ -327,19 +360,27 @@ If the README does not exist, generate it from the template established during d
 
 **Every distillation MUST end with an error log update.** This is not optional.
 
-After each distillation, record in the project skill's Known Issues table:
+After each distillation, record in the project skill's Known Issues table.
 
+**Canonical Known Issues row format** (3-column: Issue | Workaround | Status):
+
+```markdown
+## Known Issues
+
+| Issue | Workaround | Status |
+|-------|-----------|--------|
+| [Source-Label]: [brief description of issue — e.g., "Table on p.12 extracted as plain text"] | [what was done — e.g., "pdfplumber returned empty; Docling not installed; used PyMuPDF text blocks"] | [YYYY-MM-DD] [RESOLVED / OPEN / WORKAROUND] |
+| [Source-Label]: clean run | Route [X], all extraction channels nominal | [YYYY-MM-DD] |
+```
+
+**What to log** (populate from the actual distillation run):
 1. **Source type and extraction route** (PDF Route A-G, Route W for web, Route I for image)
-2. **Extraction tier used** (for PDFs: which detection channels succeeded/failed; for web: WebFetch vs browser render; for images: Read tool multimodal)
+2. **Extraction tier used** (which detection channels succeeded/failed)
 3. **Troubleshooting paths taken** (what was tried, what worked, what did not)
-4. **New issues discovered** (with resolution or "OPEN" if unresolved)
-5. **Verification gate results** (PDFs: items passed first check, re-cropped, or fell back; web: content completeness; images: text extraction confidence)
+4. **New issues discovered** (with resolution status: RESOLVED if fixed, WORKAROUND if partially handled, OPEN if unresolved)
+5. **Verification gate results** (figures: passed/re-cropped/fell-back; web: content completeness; images: text extraction confidence)
 
-If no issues encountered, add a single row:
-
-```
-| [Source Label]: clean run | [source type], all extraction channels nominal | [date] |
-```
+If no issues encountered, add a single clean run row as shown above.
 
 The purpose of this log is cumulative learning. Each distillation makes the next one faster by pre-loading solutions.
 

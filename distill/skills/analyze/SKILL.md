@@ -115,12 +115,31 @@ $$[equation in LaTeX] \tag{N}$$
 ```
 
 **Figure storage convention**: Rendered figures saved in `[distillation_dir]/figures/[Source-Label]/`. File naming by source type:
-- **PDF figures**: `{type}_{NN}_p{P}.png` — e.g., `fig_02_p16.png` (Figure 2, page 16), `tab_03_p34.png` (Table 3, page 34). Fallback: `visual_{seq}_p{P}.png` (uncaptioned) or `page_{P}.png` / `page_{P}_equations_dpi200.png` (full-page).
+- **PDF figures**: `{type}_{NN}_p{P}.png` — e.g., `fig_02_p16.png` (Figure 2, page 16), `tab_03_p34.png` (Table 3, page 34), `eq_01_p9.png` (Equation 1, page 9). Fallback: `page_{P}.png` (full-page render when cropping fails).
 - **Web figures**: `web_fig_NN.png` — numbered sequentially as captured from the page.
 - **Recording keyframes**: `frame_NN_[MM-SS].png` — numbered sequentially with timestamp of capture.
 - **Image sources**: `img_[Source-Label]_NN.png` (or original extension).
 
-**PDF Source header**: `> Source: [author], [title], [publication], [year], [page count] pp.`
+**Canonical source header by type** (consistent key order across all source types):
+
+```markdown
+> Source: [Author(s)], "[Title]", [Publication/Venue], [Year], [page count] pp.
+> Date distilled: [YYYY-MM-DD]
+> Distilled by: Claude (via distill skill)
+> Extraction: [PyMuPDF / pdfplumber+PyMuPDF / WebFetch / browser render / Claude vision / yt-dlp+faster-whisper]
+> Register: [analytic / continental / empirical / formal-mathematical / practitioner / mixed]
+> Tone: [personal-reflexive / impersonal-objective / mixed]
+> Density: [technical-specialist / accessible-general / mixed]
+> Source type: [PDF / web / image / recording]
+> Completeness: [complete / partial -- describe limitation]
+> Scan notes: [any low-confidence detections or extraction issues, or "clean"]
+```
+
+**Type-specific Source line variations** (first line only — all other header lines are identical):
+- **PDF**: `> Source: [Author(s)], "[Title]", [Publication], [Year], [page count] pp.`
+- **Web**: `> Source: [Author(s)], "[Title]", [Site/Publication], [Date], URL: [url]` + add `> Date fetched: [YYYY-MM-DD]`
+- **Image**: `> Source: [Description of image content]` + add `> Image file(s): [filename(s)]`
+- **Recording**: `> Source: [Speaker(s)], "[Title]", [Platform], [Date], URL: [url or path]` + add `> Duration: [HH:MM:SS]` and `> Language: [detected or specified]`
 
 **NOTE**: The distillation file contains NO project-specific interpretation. It is a neutral, portable scholarly artifact. Project-specific readings go in the interpretation file (see below).
 
@@ -343,6 +362,7 @@ Populate counts from the actual distillation and interpretation outputs:
 - `figures_decomposed`: figures in Figures section (0 if section absent)
 - `interpretation.mappings`: rows in Project Significance table (0 if pure_mode)
 - Relationship counts from the Relationship column of the Project Significance table
+- `open_questions`: count discrete bullet points (`- ` lines) in the Open Questions section of the interpretation file. Each bullet = 1 question. If Open Questions section is absent or empty, count = 0. Free-text paragraphs without bullet points count as 1 question each.
 
 ## Troubleshooting Decision Tree
 

@@ -2,6 +2,22 @@
 
 All notable changes to buffer are documented here.
 
+## [1.7.0] - 2026-03-10
+
+### Template Consistency
+- **Canonical INDEX.md template** — full structure with headers, category tables, and row format (column-by-column specification) added to integrate SKILL.md. No more reverse-engineering from existing files.
+- **Canonical distillation header** — unified header format across all source types (PDF/web/image/recording) with consistent key order. Per-type Source line variations documented. Extract skill headers now reference the canonical format.
+- **Figure naming harmonization** — removed `visual_{seq}_p{P}.png` fallback variant. Single convention: `{type}_{NN}_p{P}.png` with `page_{P}.png` fallback. Consistent between extract and analyze skills.
+- **Known Issues full format** — 3-column template (Issue / Workaround / Status) with both clean-run and issue-found examples. Status values: RESOLVED / OPEN / WORKAROUND.
+- **README row format** — canonical row template for Sources Distilled and Glossary tables in integrate SKILL.md.
+- **Glossary row example** — example entry in differentiate template showing operational definition format and Source-Label reference.
+- **Open Questions counting rule** — discrete bullet points in interpretation's Open Questions section, countable for `.distill_stats`. Free-text paragraphs count as 1 each.
+
+### Differentiation
+- **GROBID demand-install** — Q9 now offers three options (Install now / Install later / Never) matching all other heavy tools. "Install later" records `GROBID: demand-install` for Route F on-demand setup.
+- **Five-mode distillation** — Q4 reworked: Comprehensive (extract everything), Focused (AI autonomously prioritizes), Ask me each time (user chooses per-source), Automated-simple (zero popups, distill only), Automated-robust (zero popups, full pipeline with auto-install).
+- **_v* count filtering** — Step 0 distillation count now excludes `_v[N]_` suffixed files (archived redistillations) from the tally.
+
 ## [1.6.0] - 2026-03-09
 
 ### Performance
