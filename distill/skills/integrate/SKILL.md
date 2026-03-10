@@ -117,40 +117,45 @@ After any redistillation mode, log the action in warm `validation_log`:
 
 #### concept_convergence type (alpha path)
 
-Draw mappings from the interpretation file's Project Significance table and Integration Points. For each concept mapping, build a JSON object with **rich body content** and pipe to `alpha-write`:
+Draw mappings from the interpretation file's Project Significance table and Integration Points. For each concept mapping, build a **thin** JSON object with marker reference and pipe to `alpha-write`:
 
 ```bash
 echo '[
   {"type":"cross_source","source_folder":"[kebab-case-source]",
    "distillation":"[Source-Label].md",
+   "marker":"[concept_key]",
    "key":"Source:ConceptName","maps_to":"[project framework mapping]",
    "ref":"[source citation]","suggest":null,
-   "body":"## Definition\n[definition from Key Concepts table]\n\n## Significance\n[significance from Key Concepts table]\n\n## Project Mapping\n\n- **Maps to**: [mapping]\n- **Relationship**: [confirms/extends/challenges/novel]\n- **Integration**: [relevant detail from Integration Points]\n\n## Source\n[source citation from distillation header]"},
+   "body":null},
   {"type":"cross_source","source_folder":"[kebab-case-source]",
    "distillation":"[Source-Label].md",
+   "marker":"[another_concept_key]",
    "key":"Source:AnotherConcept","maps_to":"[mapping]",
    "ref":"","suggest":null,
-   "body":"## Definition\n..."}
+   "body":null}
 ]' | buffer_manager.py alpha-write --buffer-dir .claude/buffer/
 ```
 
-The command auto-assigns IDs, writes canonical `.md` files (with self-contained body content and `<!-- TERMINAL -->` directive), and updates `alpha/index.json` atomically. Read the output JSON to get assigned IDs.
+**Marker reference**: The `marker` field is the concept key matching `<!-- CONCEPT:[key] -->` markers in the distillation file. Derive it: lowercase, remove parentheticals, strip special chars, spaces→underscores, truncate at 40 chars. Example: `"Wholeness (W)"` → `wholeness_w`.
 
-#### Alpha Entry Enrichment (mandatory)
+**Body = null**: The distillation file content behind the marker IS the canonical recall artifact. `alpha-query --id` extracts it via marker-based retrieval (single file pass, batch-capable). No duplication needed.
 
-Each `alpha-write` entry **MUST** include a `body` field with self-contained content extracted from the distillation and interpretation just produced. The body makes each alpha `.md` file a **standalone knowledge atom** — sigma should never need to read the full distillation to recall a concept.
+**When body is NOT null**: If the concept needs project-specific integration notes beyond what's in the distillation (e.g., codebase parameter mappings, implementation context), include a short body (<10 lines). This supplements marker retrieval, not replaces it.
 
-Extract per-concept:
-1. **Definition**: From the Key Concepts table, Definition column
-2. **Significance**: From the Key Concepts table, Significance column
-3. **In Context**: 1-2 paragraphs from Core Argument where this concept operates. If the concept is discussed across multiple paragraphs, extract the most operationally dense passage.
-4. **Equations**: If the concept has associated equations, include the LaTeX + variable definitions
-5. **Project Mapping**: From the interpretation's Project Significance table + Integration Points. Include relationship type and any codebase/parameter references.
-6. **Source**: Full source citation from distillation header
+The command auto-assigns IDs, writes `.md` files (body content if provided, stub if null), and updates `alpha/index.json` with `distillation` and `marker` fields. Read the output JSON to get assigned IDs.
 
-Target: 30-80 lines per entry. Dense, self-contained, zero-attrition.
+#### Alpha Entry Retrieval Architecture
 
-**Anti-entropy rule**: The distillation filename is included for TRACEABILITY (so a human or future instance can verify), NOT as a read instruction. The alpha entry IS the canonical recall artifact. The `body` field triggers a `<!-- TERMINAL -->` directive in the generated `.md` that prevents downstream instances from following the reference chain back to the full distillation. This is structural, not advisory — enriched entries are terminal reads.
+Alpha entries are **thin pointers** into marked distillation files. Content retrieval works via `alpha-query --id`, which:
+1. Checks index.json for `distillation` and `marker` fields
+2. If present: extracts content between `<!-- CONCEPT:[key] -->` markers from the distillation file (single file pass, batch-capable, ~10-20 lines returned per concept)
+3. If absent: falls back to reading the alpha `.md` file directly
+
+**Token economics**: 5 concepts via marker extraction ≈ 275 tokens (vs ~750 tokens reading 5 enriched `.md` files). The distillation file is the single source of truth — no content duplication.
+
+**When to include a body**: Only when the concept needs project-specific integration notes that are NOT in the distillation (e.g., codebase parameter mappings, implementation-specific context). Keep body <10 lines. Most entries should have `body: null`.
+
+**Legacy compatibility**: Old entries with enriched `.md` files (body ≠ null, no marker field) continue to work. `alpha-query` falls back to file reading automatically.
 
 After `alpha-write` succeeds, update hot layer: add `"status": "NEW"` entry to warm `validation_log`; increment `total_entries` in hot `concept_map_digest` and add new IDs to `recent_changes`.
 

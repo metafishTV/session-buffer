@@ -1684,6 +1684,53 @@ def cmd_alpha_read(args):
 # Subcommand: alpha-query
 # ---------------------------------------------------------------------------
 
+def _find_distilled_dir(buf_dir):
+    """Locate the project's distilled directory from the buffer dir.
+
+    Derives project root from buf_dir (.claude/buffer/ → project root),
+    then checks common distillation directory patterns.
+    Returns Path or None.
+    """
+    project_root = buf_dir.parent.parent  # .claude/buffer/ → .claude/ → root
+    for candidate in ['docs/references/distilled', 'docs/distilled', 'distilled']:
+        d = project_root / candidate
+        if d.is_dir():
+            return d
+    return None
+
+
+def _extract_marker_content(distilled_dir, distillation_file, marker_key):
+    """Extract content between CONCEPT markers from a distillation file.
+
+    Returns extracted text or None if file/marker not found.
+    """
+    fpath = distilled_dir / distillation_file
+    if not fpath.is_file():
+        return None
+    try:
+        lines = fpath.read_text(encoding='utf-8').splitlines(keepends=True)
+    except OSError:
+        return None
+
+    open_tag = f'<!-- CONCEPT:{marker_key} -->'
+    close_tag = f'<!-- /CONCEPT:{marker_key} -->'
+    capturing = False
+    captured = []
+
+    for line in lines:
+        stripped = line.strip()
+        if stripped == open_tag:
+            capturing = True
+            continue
+        if stripped == close_tag:
+            capturing = False
+            continue
+        if capturing:
+            captured.append(line)
+
+    return ''.join(captured) if captured else None
+
+
 def cmd_alpha_query(args):
     """Query alpha bin for specific referents.
 
@@ -1691,6 +1738,10 @@ def cmd_alpha_query(args):
       --id w:218        → Retrieve single entry by ID
       --source sartre   → List all entries from a source (case-insensitive prefix match)
       --concept total   → Search concept_index for matching terms
+
+    When entries have 'distillation' and 'marker' fields, retrieves content
+    via marker extraction from distillation files (script-based retrieval).
+    Falls back to reading alpha .md files when markers are absent or fail.
     """
     buf_dir = Path(args.buffer_dir)
     alpha_dir = buf_dir / 'alpha'
@@ -1704,27 +1755,102 @@ def cmd_alpha_query(args):
     results = []
 
     if args.id:
-        # Direct ID lookup
+        # Direct ID lookup — batch by distillation file for efficiency
+        distilled_dir = _find_distilled_dir(buf_dir)
+
+        # Group entries by distillation file for batch extraction
+        by_distillation = {}  # distillation_file → [(qid, marker_key)]
+        fallback_ids = []     # IDs without marker fields
+
         for qid in args.id:
-            if qid in entries:
-                info = entries[qid]
-                # Read the actual file content
-                fpath = alpha_dir / info['file'].replace('/', os.sep)
-                content = ''
-                if fpath.exists():
-                    try:
-                        content = fpath.read_text(encoding='utf-8')
-                    except OSError:
-                        content = '[read error]'
-                results.append({
-                    'id': qid,
-                    'source': info.get('source', '?'),
-                    'concept': info.get('concept', '?'),
-                    'file': info['file'],
-                    'content': content
-                })
-            else:
+            if qid not in entries:
                 results.append({'id': qid, 'status': 'not_found'})
+                continue
+            info = entries[qid]
+            dist_file = info.get('distillation')
+            marker = info.get('marker')
+            if distilled_dir and dist_file and marker:
+                by_distillation.setdefault(dist_file, []).append((qid, marker))
+            else:
+                fallback_ids.append(qid)
+
+        # Batch marker extraction: one file read per distillation
+        marker_cache = {}  # (dist_file, marker) → content
+        for dist_file, id_markers in by_distillation.items():
+            fpath = distilled_dir / dist_file
+            if not fpath.is_file():
+                # File missing — fall back to .md for all entries
+                fallback_ids.extend(qid for qid, _ in id_markers)
+                continue
+            try:
+                lines = fpath.read_text(encoding='utf-8').splitlines(keepends=True)
+            except OSError:
+                fallback_ids.extend(qid for qid, _ in id_markers)
+                continue
+
+            # Extract all needed markers from this file in a single pass
+            needed_markers = {m for _, m in id_markers}
+            open_tags = {f'<!-- CONCEPT:{m} -->': m for m in needed_markers}
+            close_tags = {f'<!-- /CONCEPT:{m} -->': m for m in needed_markers}
+            current_marker = None
+            captured = {}  # marker → [lines]
+
+            for line in lines:
+                stripped = line.strip()
+                if stripped in open_tags:
+                    current_marker = open_tags[stripped]
+                    captured.setdefault(current_marker, [])
+                    continue
+                if stripped in close_tags:
+                    current_marker = None
+                    continue
+                if current_marker is not None:
+                    captured[current_marker].append(line)
+
+            for qid, marker in id_markers:
+                content = ''.join(captured.get(marker, []))
+                if content:
+                    marker_cache[(dist_file, marker)] = content
+                else:
+                    fallback_ids.append(qid)
+
+        # Build results: marker-retrieved entries
+        for dist_file, id_markers in by_distillation.items():
+            for qid, marker in id_markers:
+                if qid in [r['id'] for r in results]:
+                    continue  # Already added (not_found)
+                content = marker_cache.get((dist_file, marker))
+                if content:
+                    info = entries[qid]
+                    results.append({
+                        'id': qid,
+                        'source': info.get('source', '?'),
+                        'concept': info.get('concept', '?'),
+                        'file': info['file'],
+                        'content': content,
+                        'retrieval': 'marker'
+                    })
+
+        # Fallback: read .md files for entries without markers
+        for qid in fallback_ids:
+            if qid in [r['id'] for r in results]:
+                continue
+            info = entries[qid]
+            fpath = alpha_dir / info['file'].replace('/', os.sep)
+            content = ''
+            if fpath.exists():
+                try:
+                    content = fpath.read_text(encoding='utf-8')
+                except OSError:
+                    content = '[read error]'
+            results.append({
+                'id': qid,
+                'source': info.get('source', '?'),
+                'concept': info.get('concept', '?'),
+                'file': info['file'],
+                'content': content,
+                'retrieval': 'file'
+            })
 
     elif args.source:
         # Source prefix search (case-insensitive)

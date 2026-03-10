@@ -49,9 +49,54 @@ Five passes from raw extraction to project integration. The analytic pass asks "
 
 Interpretive frame varies by register — style detection prevents misreading concepts across traditions.
 
+## Atom Marker Protocol
+
+**Purpose**: Distillation files are the single source of truth for all concept content. HTML comment markers embedded at write time enable script-based section retrieval (`distill_retrieve.py`) — a Python script extracts only the marked content at zero token cost, eliminating the need for full-file reads. These markers are invisible in normal markdown rendering.
+
+**Two levels of markers:**
+
+1. **Section markers** — wrap every `##` section:
+   ```
+   <!-- SECTION:section_name -->
+   ## Section Heading
+   [content]
+   <!-- /SECTION:section_name -->
+   ```
+   Names: `core_argument`, `key_concepts`, `figures`, `equations`, `theoretical_implications`
+
+2. **Concept markers** — wrap each concept's row within Key Concepts:
+   ```
+   <!-- CONCEPT:concept_key -->
+   | Concept | Definition | Significance | Source Ref |
+   <!-- /CONCEPT:concept_key -->
+   ```
+
+3. **Figure markers** — wrap each figure subsection:
+   ```
+   <!-- FIGURE:fig_id -->
+   ### Figure N: Title
+   [content]
+   <!-- /FIGURE:fig_id -->
+   ```
+
+**Concept key normalization**: lowercase, spaces to underscores, strip parentheses and special chars, truncate at 40 chars. Examples: `"Wholeness (W)"` → `wholeness_w`, `"Cross-metathesis"` → `cross_metathesis`, `"Degrees of life"` → `degrees_of_life`.
+
+**Why concept keys, not w:IDs**: w:IDs are assigned during integration (after distillation). Concept keys are stable names derived from the Key Concepts table at write time. The index.json maps `w:ID → marker key → content in distillation file`.
+
+## Distillation Voice Directive
+
+**Distillations are optimized for AI reprocessing**, not human consumption. They serve as the canonical knowledge source from which the retrieval script extracts atoms for future AI instances. Interpretations are the human-facing documents.
+
+- Use tables and structured fields over narrative paragraphs
+- Core Argument: 1-3 paragraphs max, direct assertive register
+- Significance column: operational work (what it blocks/enables/transforms), not importance
+- No meta-commentary ("the author argues that..." → state the claim directly)
+- No redundancy — the distillation IS the source for alpha retrieval; content here is not duplicated into alpha `.md` files
+- The concept map / alpha bin is the AI's pointer layer to this content; interpretations are the human's access point
+
 ## Output Template
 
-Produce the distillation in this exact structure. Mandatory sections ALWAYS appear. Conditional sections appear ONLY when the source contains relevant content.
+Produce the distillation in this exact structure. Mandatory sections ALWAYS appear. Conditional sections appear ONLY when the source contains relevant content. **All `##` sections, concept rows, and figure subsections MUST have atom markers** — see Atom Marker Protocol above.
 
 ```markdown
 # [Source Label] — Distillation
@@ -64,36 +109,60 @@ Produce the distillation in this exact structure. Mandatory sections ALWAYS appe
 > Density: [technical-specialist / accessible-general / mixed]
 > Source type: [PDF / web / image / recording]
 
+<!-- SECTION:core_argument -->
 ## Core Argument
 
 [1-3 paragraphs in direct assertive register: State the argument AS the source states it, condensed. Trace the operational motions: what each major move blocks, enables, or transforms. Do not frame claims as "the author argues" or "this paper proposes" — the header carries attribution. Write as if the source itself is speaking in compressed form: its logic chain, its moves, its productivity. When the source attributes claims to others, preserve THAT attribution ("Against Heidegger: being is not neutral"). Do not editorialize. **Include inline source citations** for each major claim — see Source Citation Rules below.]
+<!-- /SECTION:core_argument -->
 
+<!-- SECTION:key_concepts -->
 ## Key Concepts
 
 | Concept | Definition | Significance | Source Ref |
 |---------|-----------|--------------|------------|
+<!-- CONCEPT:[concept_key] -->
 | [term]  | [precise definition as used in this source] | [what structural work this concept performs in the argument — what it blocks, enables, replaces, or transforms; why the author needs it at this juncture] | [location in source — see Source Citation Rules] |
+<!-- /CONCEPT:[concept_key] -->
 
 [Scale concept depth dynamically with source length — this mirrors the sigma hook's dynamic scalar pattern:
 - **Short sources** (< 20 pages / < 5k words): 5-8 concepts — tighter focus, each concept gets more operational depth
 - **Medium sources** (20-100 pages / 5k-30k words): 8-15 concepts — standard depth
 - **Long sources** (100+ pages / 30k+ words): 15-25 concepts — broader coverage, significance column can be more concise per entry
-Use the source's own terminology. The Significance column captures operational function, not just importance — what each concept *does* in the text's architecture. The Source Ref column grounds every concept in a specific location in the original, enabling traceability without re-reading the full source.]
+Use the source's own terminology. The Significance column captures operational function, not just importance — what each concept *does* in the text's architecture. The Source Ref column grounds every concept in a specific location in the original, enabling traceability without re-reading the full source.
 
+**Each concept row MUST be wrapped in `<!-- CONCEPT:key -->` / `<!-- /CONCEPT:key -->` markers.** The concept key is derived from the Concept column using the normalization rules in the Atom Marker Protocol.]
+<!-- /SECTION:key_concepts -->
+
+<!-- SECTION:figures -->
 ## Figures, Tables & Maps                     ← CONDITIONAL: only if visual material exists
 
-[For each figure/table/map:]
-### [Figure/Table N]: [Title or description]
+[For each figure/table/map — compact reference format. Full decomposition goes in `_manifest.json` in the figures folder:]
 
-![Figure N](figures/[Source-Label]/fig_NN_pP.png)
+<!-- FIGURE:[fig_id] -->
+### [Figure/Table N]: [Title or description] — p.[page]
+`[filename.png]` | [1-sentence summary of what the figure shows] | Concepts: [concept_key_1], [concept_key_2]
+<!-- /FIGURE:[fig_id] -->
 
-- **What it shows**: [textual decomposition of visual content — describe ALL visible elements: axes, labels, data series, regions, annotations, legends]
-- **Key data points**: [specific values, relationships, patterns, trends, outliers visible in the figure]
-- **Connection to argument**: [how this visual supports or advances the core argument — what claim does it evidence?]
-- **Concept mappings**: [which Key Concepts this figure illustrates, extends, or provides evidence for. For each: state the concept AND how the figure relates to it. E.g., "Demonstrates [Concept A] by showing [specific relationship]; extends [Concept B] via [mechanism visible in the data]." This makes each figure entry self-contained — no separate cross-reference section needed.]
+[The figures folder (`[figures_dir]/[Source-Label]/`) contains the images and `_manifest.json` with full decomposition data. The distillation carries compact references only — the figure ID links to the manifest entry. This prevents inline duplication of figure descriptions that already exist in the figures folder.
 
-Note: The image reference embeds the rendered page for visual inspection by future sessions. The text decomposition provides searchable content and alt-text. Both required — image alone loses searchability; text alone loses spatial/visual information. The concept mappings ground each figure in the source's conceptual architecture — a figure without concept anchors is an orphan artifact.
+**`_manifest.json` enrichment**: After figure extraction, enrich each manifest entry with:
+```json
+{
+  "[filename.png]": {
+    "page": NN,
+    "caption": "Title",
+    "type": "diagram|photo|table|equation",
+    "description": "Full textual decomposition of visual content...",
+    "data_points": "Specific values, relationships, patterns...",
+    "argument_connection": "How this advances the core argument...",
+    "concepts": ["concept_key_1", "concept_key_2"]
+  }
+}
+```
+If no `_manifest.json` exists (older extraction), create it. Retrieval: `distill_retrieve.py --figure [fig_id]` extracts from the manifest or from the marked section.]
+<!-- /SECTION:figures -->
 
+<!-- SECTION:equations -->
 ## Equations & Formal Models                  ← CONDITIONAL: only if mathematical content exists
 
 [For each key equation, reproduce in LaTeX notation AND define every variable. Format:]
@@ -104,7 +173,9 @@ $$[equation in LaTeX] \tag{N}$$
 - $[symbol]$: [definition]
 
 [**Variable definitions are MANDATORY.** An equation without its variable definitions cannot be reconstructed by a future instance. If a variable was defined in an earlier equation, a brief back-reference suffices (e.g., "$C$: connectivity matrix (see Eq. 1)"). Group equations sharing a derivation chain under a common heading.]
+<!-- /SECTION:equations -->
 
+<!-- SECTION:theoretical_implications -->
 ## Theoretical & Methodological Implications   ← MANDATORY
 
 [What method does this source employ — dialectical, phenomenological, formal-mathematical, empirical-statistical, case-study, simulation, mixed? What are the methodological implications of the argument? What does the method assume, and what does it preclude? Every source has a method, even when unstated. **Include inline source citations** for methodological claims — see Source Citation Rules.]
@@ -112,6 +183,7 @@ $$[equation in LaTeX] \tag{N}$$
 ### Empirical Grounding                        ← CONDITIONAL subsection: only if source is experimental/quantitative
 
 [Data sources, sample sizes, methods, key findings with numbers. This subsection grounds the methodological discussion in concrete evidence: what data the method actually produced, how it was gathered, and what the numbers show. Without this, the methodological claims above remain abstract — with it, they are evidenced. Include: data sources and provenance, sample characteristics (N, selection criteria, representativeness), measurement instruments and their validity, key quantitative findings with effect sizes and confidence, limitations the data imposes on the claims.]
+<!-- /SECTION:theoretical_implications -->
 ```
 
 **Figure storage convention**: Rendered figures saved in `[distillation_dir]/figures/[Source-Label]/`. File naming by source type:

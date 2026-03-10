@@ -2,6 +2,17 @@
 
 All notable changes to buffer are documented here.
 
+## [1.9.0] - 2026-03-10
+
+### Atom Marker Architecture — Script-Based Sectional Retrieval
+- **Atom markers in distillations** — `<!-- SECTION:name -->`, `<!-- CONCEPT:key -->`, and `<!-- FIGURE:id -->` HTML comment markers embedded in distillation output. Enables zero-token-cost extraction of individual sections, concepts, or figures from master distillation files. Concept key normalization: lowercase, strip parentheticals/special chars, spaces→underscores, truncate 40 chars.
+- **Retrieval script** — `distill_retrieve.py` extracts marked sections from distillation files. Modes: `--section`, `--atoms` (batch), `--figure`, `--list-sections`. Heading-based fallback for unmarked files. Single-pass batch extraction for multiple concepts.
+- **Marker-based alpha-query** — `alpha-query --id` now checks for `distillation` and `marker` fields in index.json. When present, extracts concept content directly from marked distillation files (single file read per source, batch-capable). Falls back to reading alpha `.md` files for legacy entries. ~63% token reduction for typical multi-concept queries.
+- **Thin alpha entries** — integrate skill updated: alpha entries are now thin pointers (`body: null`) with `distillation` + `marker` fields. Content lives in the distillation file behind the marker. Optional short body (<10 lines) for project-specific integration notes only.
+- **Backfill script** — `distill_backfill_markers.py` inserts markers into existing distillation files and updates alpha index.json. Safe dry-run mode. Applied to all 26 sigma-TAP distillations: 360 concept markers, 71 figure markers, 80 alpha entries linked.
+- **Distillation voice directive** — codified: distillations optimized for AI reprocessing (dense, structured, no prose filler). Interpretations for human consumption. Compact figure references (2-3 lines) replace verbose inline descriptions; full decomposition in `_manifest.json`.
+- **Figure reference pattern** — figures section uses compact format: `filename | 1-sentence summary | Concepts: key1, key2`. Detailed descriptions stored in `_manifest.json` in the figures folder.
+
 ## [1.8.0] - 2026-03-10
 
 ### Extraction Intelligence
