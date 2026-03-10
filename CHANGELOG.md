@@ -2,6 +2,24 @@
 
 All notable changes to buffer are documented here.
 
+## [1.4.0] - 2026-03-09
+
+### Added
+- **Wall inhibition** — `[wall]` convergence edges now actively inhibit: excluded from cluster computation (`compute_clusters` skips wall edges), marked as boundaries in traversal (`traverse_neighborhood` won't cross them), and counted in health report
+- **TAP scoring** (adjacent possibility) — `tap_scoring()` replaces `default_scoring()` with temporal boost from sigma hits (ref_count, capped at 2x). Per-concept structural importance in the convergence web
+- **TIP scoring** (included possible) — each grid cell now carries a `tip_score`: the composite of TAP scores at that contextual convergence point. Grid schema bumped to v2
+- **Bidirectional sigma→alpha feedback** — `_read_sigma_hits()` parses `.sigma_hits` log and feeds ref_count/last_ref/trend into `compute_reinforcement()`. Sigma operational usage now strengthens alpha structural importance
+- **Polyvocal provenance encoding** — `origin` field on all alpha entries: `distill` (diachronic, from source extraction) or `session` (synchronic, from dialogue). `backfill_convergence_tags()` retroactively tags existing entries
+- **Convergence tag indexing** — `convergence_tag` extracted from `[tag]` in synthesis field and stored in index.json for all cw: entries (52 independent_convergence, 45 complementarity, 14 elaboration, 4 genealogy, 2 tension)
+- **Grid rebuild on buffer:off** — Step 14b runs `alpha-reinforce → alpha-clusters → alpha-grid-build` before commit, ensuring the grid reflects the new session's orientation
+- **Enhanced health report** — now shows wall edge count, provenance split (diachronic/synchronic), TAP distribution (adjacent/unadjacent), and temporal feedback count
+
+### Architecture
+- Alpha-sigma flow is bidirectional: alpha→sigma (grid gate injection) and sigma→alpha (temporal hit feedback)
+- TAP = per-concept adjacency score; TIP = per-cell inclusion score (compositional)
+- Walls enforce conceptual boundaries — anti-conflation, not disconnection
+- Provenance is polyvocal: distill/session voices inhabit every layer, not separate containers
+
 ## [1.3.0] - 2026-03-09
 
 ### Added
