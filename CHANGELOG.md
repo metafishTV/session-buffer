@@ -2,6 +2,14 @@
 
 All notable changes to buffer are documented here.
 
+## [1.8.0] - 2026-03-10
+
+### Extraction Intelligence
+- **Time estimates** — after PDF scan, extraction time is calculated from per-page timing benchmarks (PyMuPDF ~0.1s, RapidOCR ~2-5s, Vision OCR ~3-8s, etc.) and displayed in the scan summary. Users see `Estimated time: ~X-Y min` before committing to extraction.
+- **Timeout batching** — if estimated extraction time exceeds 500s for any route, pages are auto-batched with dynamic Bash timeout settings. Prevents timeouts on large PDFs (500+ scanned pages). Merge protocol concatenates batch results in page order.
+- **RapidOCR API autocheck** — `distill_ocr.py --probe` silently detects the installed OCR backend and version in ~2 seconds. Result cached in the project tooling profile (`ocr_backend: <backend> <version>`) — subsequent distillations skip the probe. Handles `rapidocr` v3+ / `rapidocr_onnxruntime` v1.x API differences transparently.
+- **Figure auto-classification** — `distill_scan.py` now classifies figures by type: photo candidates (large raster, >30% page area), vector diagrams (>20 drawing operations), and small rasters. Classification appears in the scan summary — no new popup. Informs the Figure Budget Gate and extraction approach.
+
 ## [1.7.0] - 2026-03-10
 
 ### Template Consistency

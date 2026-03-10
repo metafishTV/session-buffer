@@ -114,14 +114,33 @@ Run the bundled scan script:
 python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_scan.py "<pdf_path>" --output _distill_scan.json
 ```
 
-Read `_distill_scan.json` for structured scan data (page lists for tables, complex_layout, scanned, equations, text_pages, image_pages, total_images, fully_scanned).
+Read `_distill_scan.json` for structured scan data (page lists for tables, complex_layout, scanned, equations, text_pages, image_pages, total_images, fully_scanned, figure_types).
+
+#### Timing Reference (per-page rates)
+
+Use these benchmarks to estimate extraction time from the scan results:
+
+| Route / Tool | Per-page rate | Notes |
+|---|---|---|
+| PyMuPDF text (Route A) | ~0.1s | Nearly instant |
+| pdfplumber tables (Route B) | ~0.5s | Tables only |
+| Docling layout (Route C) | ~1-2s | Heavy model load |
+| RapidOCR (Route D) | ~2-5s | DPI-dependent |
+| OCRmyPDF (Route D) | ~1-3s | Tesseract-based |
+| Vision OCR fallback (Route D) | ~3-8s | API call per 5-page batch |
+| Marker equations (Route E) | ~1-2s | GPU accelerates |
+| GROBID (Route F) | ~0.5-1s | Whole-doc, amortized per page |
+
+**Calculation**: For each route group, multiply page count × per-page rate. Sum all groups. Low estimate uses the lower rate, high estimate uses the upper rate × 1.5 safety margin.
 
 **⚠ MANDATORY REVIEW**: Present the scan summary as **plain text** (not in a popup). Include:
 - Page counts by category (text, tables, complex layout, scanned/empty, equations)
 - Total embedded images and image page count
+- Figure type breakdown: photo candidates (large raster), vector diagrams, small rasters — from `scan["figure_types"]`. Informs the Figure Budget Gate and extraction approach without adding a new popup
 - Fully-scanned flag (if true, prominently note: "This PDF has NO text layer -- all content is in scanned images")
 - Confidence notes (one line each)
 - Which extraction routes will be used for which pages
+- **Estimated extraction time**: Calculate from the Timing Reference table above. Format: `Estimated time: ~X-Y min (N pages Route A, M pages Route D via RapidOCR, ...)`. For simple PDFs (Route A only): `< 30 seconds`. For estimates >10 min: warn prominently
 
 Then call `AskUserQuestion` with ONLY: "Proceed with extraction" / "I have notes about this scan". The popup has ONLY the decision -- all information is in the plain text above. Low-confidence detections proceed normally but note them in the distillation header under `> Scan notes:`.
 
@@ -168,9 +187,15 @@ After the scan review (and Figure Budget Gate if triggered), determine ALL speci
 |-------------|-------------|-------|
 | `tables` non-empty | pdfplumber | `import pdfplumber` |
 | `complex_layout` non-empty | Docling | `import docling` |
-| `scanned` non-empty | OCR backend | Run `distill_ocr.py --probe` |
+| `scanned` non-empty | OCR backend | Run `distill_ocr.py --probe` (see below) |
 | `equations` non-empty | Marker | `import marker` |
 | GROBID mode enabled | Docker + GROBID | `docker ps \| grep grobid` |
+
+**OCR backend autocheck** (`distill_ocr.py --probe`):
+```
+python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_ocr.py dummy --scan /dev/null --output /dev/null --probe
+```
+Output: `PROBE: <backend> <version>` (e.g., `PROBE: rapidocr 3.0.1`) or `PROBE: no_backend` (exit code 2). Takes ~2 seconds. **Cache the result** in the project tooling profile as `ocr_backend: <backend> <version>`. On subsequent distillations, skip the probe if the cached entry exists — the backend doesn't change between sessions. If the cached backend fails at runtime, clear the cache and re-probe.
 
 **Check each needed tool's status** in the project tooling profile:
 - `installed`: proceed (no popup needed)
@@ -204,6 +229,29 @@ simple_pdf = ALL of:
 **If simple_pdf**: Use PyMuPDF text directly (Route A for all pages). Skip Phase 2 routing entirely — no specialist tools, no figure pipeline. Proceed directly to Extraction Stats Output.
 
 **If NOT simple_pdf**: Continue to Phase 2 routing below.
+
+### Phase 1.9: Timeout Batching
+
+**Prevent timeouts** on long extraction operations. The Bash tool has a maximum timeout of 600,000ms (10 minutes). If the estimated extraction time for any single route exceeds this, auto-batch.
+
+**Dynamic timeout setting**: Always pass the `timeout` parameter on Bash calls for extraction scripts:
+- Simple PDF (Route A only): `timeout: 120000` (2 min, generous)
+- Mixed routes with tables/layout: `timeout: min(estimated_seconds * 1500, 600000)`
+- OCR routes (D/E): `timeout: min(scanned_pages * 5000 * 1.5, 600000)` (5s/page worst case)
+
+**Auto-batch trigger**: If `estimated_seconds > 500` for any single script invocation (leaving margin before the 600s cap):
+
+1. Compute batch size: `pages_per_batch = floor(450 / per_page_rate_high)`
+2. Split the page list into batches of that size
+3. Run each batch as a separate Bash call with `--pages` ranges
+4. Print progress between batches: `"Batch [N]/[M]: pages [start]-[end]..."`
+5. Merge results after all batches complete
+
+**Merge protocol**: Each batch writes to `_distill_text_batch_N.txt`. After all batches, concatenate in page order into `_distill_text.txt`, then delete batch files.
+
+**For vision OCR fallback**: Already batched by 5 pages (existing design). No change needed — existing batching is within timeout limits.
+
+**For non-PDF sources**: No batching needed. Web, image, and recording routes are inherently bounded (single fetch, single file, or existing chunked transcription).
 
 ### Phase 2: Content-Based Routing
 

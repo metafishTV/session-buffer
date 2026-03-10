@@ -1,6 +1,6 @@
 {
   "name": "buffer",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Three-layer memory buffer for cross-instance continuity. Preserves decisions, open threads, concept maps, and working context across Claude Code sessions.",
   "author": {
     "name": "metafish",

@@ -21,6 +21,36 @@ import json
 import sys
 
 
+def probe():
+    """Quick probe: detect backend + version, print result, exit.
+
+    Used by the Tool Manifest (Phase 1.7) for silent OCR backend detection.
+    Cached in the project tooling profile so subsequent distillations skip this.
+    """
+    backend = detect_backend()
+    if backend is None:
+        print("PROBE: no_backend")
+        sys.exit(2)
+    version = "unknown"
+    try:
+        if backend == "rapidocr":
+            import rapidocr
+            version = getattr(rapidocr, '__version__', version)
+        elif backend == "rapidocr_onnxruntime":
+            import rapidocr_onnxruntime
+            version = getattr(rapidocr_onnxruntime, '__version__', version)
+        elif backend == "ocrmypdf":
+            import ocrmypdf
+            version = getattr(ocrmypdf, '__version__', version)
+        elif backend == "pytesseract":
+            import pytesseract
+            version = str(pytesseract.get_tesseract_version())
+    except Exception:
+        pass
+    print(f"PROBE: {backend} {version}")
+    sys.exit(0)
+
+
 def detect_backend():
     """Return the best available OCR backend name."""
     # 1. RapidOCR (new package name, v3+)
@@ -181,7 +211,12 @@ def main():
     parser.add_argument("--scan", required=True, help="Path to scan JSON from distill_scan.py")
     parser.add_argument("--output", required=True, help="Output path (PDF for ocrmypdf, text for others)")
     parser.add_argument("--pages", default=None, help="Comma-separated 0-based page indices (default: all scanned pages)")
+    parser.add_argument("--probe", action="store_true", help="Quick probe: detect backend + version and exit")
     args = parser.parse_args()
+
+    if args.probe:
+        probe()
+        # probe() calls sys.exit() — never reaches here
 
     with open(args.scan, "r", encoding="utf-8") as f:
         scan_data = json.load(f)

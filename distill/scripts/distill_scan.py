@@ -29,6 +29,11 @@ def scan_pdf(pdf_path):
         "fully_scanned": False,
         "confidence_notes": [],
         "page_count": len(doc),
+        "figure_types": {
+            "photo_candidate": [],   # Pages with large raster images (>30% page area)
+            "vector_diagram": [],    # Pages with >20 vector drawing operations
+            "small_raster": [],      # Pages with small raster images only
+        },
     }
 
     for i, page in enumerate(doc):
@@ -37,11 +42,34 @@ def scan_pdf(pdf_path):
         text_blocks = [b for b in blocks if b["type"] == 0]
         stripped = text.strip()
 
-        # Image count
+        # Image count and figure type classification
         page_images = page.get_images(full=True)
         if page_images:
             scan["image_pages"].append(i)
             scan["total_images"] += len(page_images)
+
+            # Classify: large raster (likely photo) vs small raster
+            page_rect = page.rect
+            page_area = page_rect.width * page_rect.height
+            has_large_raster = False
+            if page_area > 0:
+                for img_info in page_images:
+                    img_w, img_h = img_info[2], img_info[3]
+                    if img_w * img_h > page_area * 0.3:
+                        has_large_raster = True
+                        break
+            if has_large_raster:
+                scan["figure_types"]["photo_candidate"].append(i)
+            else:
+                scan["figure_types"]["small_raster"].append(i)
+
+        # Vector drawing detection (diagrams, charts, flowcharts)
+        try:
+            drawings = page.get_drawings()
+            if len(drawings) > 20:
+                scan["figure_types"]["vector_diagram"].append(i)
+        except Exception:
+            pass  # get_drawings() not available in older PyMuPDF versions
 
         # Text presence
         if len(stripped) > 50:
@@ -137,6 +165,22 @@ def main():
     img = scan["total_images"]
     fs_tag = " (FULLY SCANNED -- no text layer)" if scan["fully_scanned"] else ""
     print(f"{n} pages scanned: {t} text, {tb} tables, {cl} complex layout, {s} scanned/empty{fs_tag}, {e} equations, {img} embedded images.")
+
+    # Figure type breakdown
+    ft = scan["figure_types"]
+    photos = len(ft["photo_candidate"])
+    vectors = len(ft["vector_diagram"])
+    smalls = len(ft["small_raster"])
+    if photos or vectors or smalls:
+        parts = []
+        if photos:
+            parts.append(f"{photos} photo candidate{'s' if photos != 1 else ''}")
+        if vectors:
+            parts.append(f"{vectors} vector diagram{'s' if vectors != 1 else ''}")
+        if smalls:
+            parts.append(f"{smalls} small raster{'s' if smalls != 1 else ''}")
+        print(f"  Figure types: {', '.join(parts)}")
+
     for note in scan["confidence_notes"]:
         print(f"  Note: {note}")
 
