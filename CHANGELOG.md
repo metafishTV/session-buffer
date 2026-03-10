@@ -2,6 +2,23 @@
 
 All notable changes to buffer are documented here.
 
+## [1.5.0] - 2026-03-09
+
+### Added
+- **Resolution bin** — `alpha-resolve` command scans for unresolved concept entries (`concept="?"`) and presents resolution candidates with suggested names extracted from "Maps to" fields. Supports `--auto` flag for batch resolution of ready entries. Writes `.resolution_queue` for reference.
+- **Tick counter** — sigma hook increments `.sigma_ticks` on every `UserPromptSubmit`. When threshold (50 messages) is reached, appends `resolution check due` to the hook's system message. Purely informational — the AI can choose to act on it or not.
+- **Resolution check at session end** — Step 14c in buffer:off runs `alpha-resolve` after grid rebuild to surface unresolved entries. Informational only, never blocks.
+- **Distill stats pipeline** — `.distill_stats` temp file flows through the distillation pipeline: extract writes (page counts, figure counts, routes used), analyze appends (concept count, mapping counts), integrate consumes and prints an end-to-end distillation report, then cleanup deletes it.
+- **End-to-end distillation report** — integrate skill now prints a full report with source metadata, content breakdown, distillation summary, interpretation mappings, integration actions, and resolution queue count. Falls back to minimal summary when `.distill_stats` is absent.
+- **Extraction agent** (scoped) — `distill/agents/extractor.md` defines a haiku-model autonomous agent for density-aware figure handling. Classifies documents as mathematical/empirical/philosophical/mixed and applies per-type figure density thresholds. Not yet wired into the pipeline — future work.
+- **Lean project skill generation** — differentiate skill now explicitly instructs: do NOT duplicate pipeline code, templates, or troubleshooting into project skills. Content inclusion matrix updated.
+
+### Architecture
+- Resolution has three tiers: tick counter (per-message, lightweight), session end (buffer:off, informational), full-scan consolidation (every N sessions, with user confirmation)
+- Resolution is NEVER automatic by default — always user-approved. `--auto` flag exists for batch operations but is not the default path
+- `.distill_stats` is a pipeline artifact: created by extract, enriched by analyze, consumed+deleted by integrate
+- Extraction agent uses density classification to avoid both under-extraction and over-extraction of figures
+
 ## [1.4.0] - 2026-03-09
 
 ### Added
