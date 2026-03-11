@@ -36,9 +36,11 @@ MUST be written before Step 2 and removed in cleanup. If integration fails mid-w
 
 ### Step 1: INDEX.md Update
 
-Read the project index file. Add or update a row in the appropriate category table.
+**Existence check first**: Check if the project index file exists before reading or generating.
+- **If it exists**: Read it, find the correct category table, and add/update the row using the row format below.
+- **If it does not exist**: Create it from the canonical structure below. Do NOT generate a custom format.
 
-**Canonical INDEX.md structure** (use this when creating a new index or verifying existing format):
+**Canonical INDEX.md structure** (use this when creating a new index — this IS the pattern, do not read existing files to learn it):
 
 ```markdown
 # Source Material Index
@@ -117,7 +119,7 @@ After any redistillation mode, log the action in warm `validation_log`:
 
 #### concept_convergence type (alpha path)
 
-Draw mappings from the interpretation file's Project Significance table and Integration Points. For each concept mapping, build a **thin** JSON object with marker reference and pipe to `alpha-write`:
+Draw mappings from the interpretation file's Project Significance table and Integration Points. For each concept mapping, build a **thin** JSON object with marker reference and pipe to `alpha-write`. The complete schema is specified below — do NOT read existing alpha entries to learn the format:
 
 ```bash
 echo '[
@@ -342,7 +344,11 @@ When no buffer plugin is detected:
 
 ## Project README Update
 
-After each distillation (both modes), update the project README at `<project>/.claude/skills/distill/README.md`:
+**Existence check first**: Check if `<project>/.claude/skills/distill/README.md` exists before reading or generating.
+- **If it exists**: Read it, then update the specific sections below (Sources Distilled row, Glossary entries, Tools table). Do NOT regenerate the whole file.
+- **If it does not exist**: Generate from the template established during differentiation.
+
+After each distillation (both modes), update the project README:
 
 1. **Sources Distilled table**: add a row using this format:
    ```
@@ -364,6 +370,8 @@ If the README does not exist, generate it from the template established during d
 ## Error Logging (mandatory)
 
 **Every distillation MUST end with an error log update.** This is not optional.
+
+**Existence check first**: The project skill file MUST exist by this point (it was read during `/distill` dispatch). Do NOT re-read the entire file — you already have it in context. Append to the Known Issues table directly.
 
 After each distillation, record in the project skill's Known Issues table.
 

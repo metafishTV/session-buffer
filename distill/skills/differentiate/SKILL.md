@@ -18,7 +18,7 @@ Check if `<repo>/.claude/skills/distill/SKILL.md` exists:
    Options:
    - **Use this configuration** -- "I found an existing distill configuration for **[project name]** ([map type] tracking, [N] distillations so far). Proceed with it."
    - **Switch project** -- Use a different project's configuration.
-   - **Pure distillation** -- Just extract and summarize this one source, no project tracking.
+   - **Pure distillation** -- Just extract and distill this one source, no project tracking.
    - **Re-differentiate** -- Reconfigure this project from scratch (preserves glossary, known issues, and existing distillations).
 
    - If "Use this configuration": follow that project skill for the distillation.
@@ -142,12 +142,15 @@ Record all detected paths and infrastructure state. If nothing is found, record 
 
 ### Pre-population Rules
 
-If existing infrastructure was detected AND the user chose "Integrate with existing" in Step 0a:
+**Tool install questions (Q6-Q10)**: These questions are gated by **runtime install status from Step 1**, not by the tooling profile text. If Step 1's audit shows a tool is already installed, **skip that question entirely** — do not ask the user to install something that's already present. This applies in ALL cases: fresh start, integrate, and re-differentiate.
+
+If an existing project skill has a Tooling Profile section, compare it against Step 1's audit results. If any tool's status changed (e.g., profile says "not installed" but audit says "installed: 0.10.3"), update the profile to match reality before proceeding to questions.
+
+**Infrastructure pre-population** (only if existing infrastructure was detected AND user chose "Integrate with existing" in Step 0a):
 
 - **Skip Q1** if the hot layer's `orientation.core_insight` provides sufficient project context. **MANDATORY POPUP**: Still confirm via `AskUserQuestion`: "From your existing buffer, your project is: '[core_insight]'. Is that right?" Options: "Yes, that's right" / "I'd describe it differently." Wait for response.
 - **Skip Q2** -- use `detected_map_type` from Step 2. **MANDATORY POPUP**: Still confirm via `AskUserQuestion`: "Your existing buffer uses [concept convergence / thematic / narrative] tracking with [N] entries. I'll wire the distill skill into this." Options: "Correct" / "Change tracking type." Wait for response.
-- **Skip Q6-Q9** if a tooling profile already exists in a previous project skill or buffer metadata.
-- Still ask Q3 (framework name), Q4 (comprehensive/focused), Q5 (path confirmation), and Q10 (anything else).
+- Still ask Q3 (framework name), Q4 (comprehensive/focused), Q5 (path confirmation), and Q11 (anything else).
 
 ### Questions
 
@@ -183,19 +186,19 @@ If existing infrastructure was detected AND the user chose "Integrate with exist
 - Allow override for any path
 - If Q2 = "No tracking": skip buffer and interpretations directory paths
 
-**Q6** (if pdfplumber not installed):
+**Q6** (SKIP if Step 1 audit shows pdfplumber is already installed):
 - "pdfplumber is the primary table extraction tool and is strongly recommended. Install it now? (`pip install pdfplumber`, <1MB)"
 - Options: [Install (Recommended)] [Skip -- tables may extract poorly]
 - If user accepts: run `pip install pdfplumber` and verify import
 - If user declines: record `pdfplumber: not installed (user declined)` in project skill
 
-**Q7** (if Docling not installed):
+**Q7** (SKIP if Step 1 audit shows Docling is already installed):
 - "Docling handles complex layouts, multi-column PDFs, and scanned document OCR. It downloads ~500MB of AI models on first use, then runs locally. When would you like to install it?"
 - Options: [Install now] [Install later when needed (Recommended)] [Never]
 - If "Install later when needed": record `Docling: demand-install`
 - If "Never": record `Docling: never`
 
-**Q8** (if Marker not installed):
+**Q8** (SKIP if Step 1 audit shows Marker is already installed):
 - "Marker converts equation-heavy PDFs to high-quality Markdown with LaTeX notation. When would you like to install it?"
 - Options: [Install now] [Install later when needed (Recommended)] [Never]
 - Same demand-install pattern as Q7
@@ -207,7 +210,7 @@ If existing infrastructure was detected AND the user chose "Integrate with exist
 - If "Install later when needed": record `GROBID mode: true`, `GROBID: demand-install` in project skill config. GROBID will be offered for setup when a scholarly paper is detected during extraction (Route F).
 - If "Never": record `GROBID mode: false`, `GROBID: never` in project skill config
 
-**Q10** (if yt-dlp not installed):
+**Q10** (SKIP if Step 1 audit shows yt-dlp is already installed):
 - "Will you distill YouTube videos, lectures, or audio recordings? This requires yt-dlp for caption extraction and metadata."
 - Options: [Install now (Recommended)] [Install later when needed] [Never]
 - Install: `pip install yt-dlp` (~10MB)

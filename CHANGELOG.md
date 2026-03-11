@@ -2,6 +2,14 @@
 
 All notable changes to buffer are documented here.
 
+## [distill 1.10.0] - 2026-03-11
+
+### Distillation Fidelity + Efficiency Fixes
+- **Language correction** — Changed "summarize" to "distill" in differentiate setup (Pure mode option). Distillation preserves information density at fewer tokens; it does not simplify or summarize.
+- **Dependency install pre-check** — Q6-Q10 install questions now gated by Step 1's runtime audit results, not just the tooling profile text. If a tool is already installed, the question is skipped entirely. Universal across all paths (fresh start, integrate, re-differentiate).
+- **Template-first principle** — Sub-skills now use inline templates directly for all output formats (interpretation files, INDEX.md, alpha-write JSON, README rows). Existing files are only read when updating, not to learn patterns. Reduces redundant file reads per distillation.
+- **Existence-check-first directives** — INDEX.md, README, and error log operations now branch on file existence: create-from-template vs read-for-update. Eliminates the generate-then-read-to-verify pattern.
+
 ## [2.1.0] - 2026-03-10
 
 ### Instruction Weight Reduction + Lite Mode Fix

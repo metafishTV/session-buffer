@@ -36,7 +36,9 @@ Distill a source document into structured reference knowledge.
    - `tooling_profile` (installed/demand-install/never per tool)
    - `memory_config`, `custom_schema` (if applicable)
 
-   **Context passing**: Each sub-skill's "Read project config" step becomes a **verification check** — confirm the config values are already loaded in the conversation context from this step, rather than re-reading the file. The parent skill reads once; the sub-skills use the loaded context. This eliminates 2 redundant file reads per distillation (~15-20% of total file I/O).
+   **Context passing**: Each sub-skill's "Read project config" step becomes a **verification check** — confirm the config values are already loaded in the conversation context from this step, rather than re-reading the file. The parent skill reads once; the sub-skills use the loaded context. This eliminates redundant file reads per distillation.
+
+   **Template-first principle**: Sub-skills provide inline templates for all output formats (interpretation files, INDEX.md rows, alpha-write JSON, README rows, Known Issues rows). Use the inline template directly — do NOT read existing output files to learn the pattern. Only read existing files when you need to UPDATE them (e.g., adding a row to an existing INDEX.md). For creation, the template IS the pattern.
 
 4. **Run the pipeline** in sequence, passing config context forward:
    a. Invoke `distill:extract` — extracts raw content from the source document

@@ -293,6 +293,8 @@ Every claim in the distillation must be traceable to a specific location in the 
 
 Write to: `[interpretations_dir]/[Source-Label].md`
 
+The interpretation file templates are provided below. Use these templates directly — do NOT read existing interpretation files to learn the pattern. The templates ARE the canonical format. Existing files may have minor variations from earlier pipeline versions; the templates below are authoritative.
+
 The interpretation file template varies by project map type:
 
 ### Template: concept_convergence
