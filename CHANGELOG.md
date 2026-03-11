@@ -2,6 +2,15 @@
 
 All notable changes to buffer are documented here.
 
+## [buffer 2.3.0] - 2026-03-11
+
+### Kirsanov Intelligence Layer (Predictive Coding + Resonator Dynamics)
+- **Prediction error tracking** — Sigma hook now records prediction errors to `.sigma_errors` (JSONL). Two error types: *gaps* (keywords with high signal but no alpha match — the buffer's blind spots) and *false positives* (grid predicted relevance but user never engaged). `alpha-health` reports top gap keywords, surfacing concepts the user discusses that alpha doesn't yet have. Inspired by Kirsanov's predictive coding: prediction errors drive both inference and learning.
+- **Resonator dynamics** (temporal co-activation) — Sigma hook records co-activation pairs to `.sigma_coactivation` when multiple concepts fire in the same hit. Co-firing frequency builds resonance weights. `compute_spread()` now weights neighbors by both structural adjacency AND temporal co-activation history — concepts that historically fire together spread more strongly. `alpha-health` reports top resonance pairs. Inspired by Kirsanov's Neural Dynamics: resonators detect temporal coincidence.
+- **Continuous score adjustment (W')** — Each sigma hit incrementally adjusts concept scores in `.sigma_scores`, creating real-time learning between batch `alpha-reinforce` runs. Tracks W' (wholeness gradient) — the derivative of the energy function. Grid builder reads these scores as alpha score boosts (capped at 3x). The user's insight: continuous adjustment IS W' — the rate of change of wholeness. W is the energy, W' is the gradient, prediction errors drive the gradient.
+- **Incremental grid updates** — Sigma hook records grid cell confirmations to `.grid_adjustments` (JSONL). Grid builder reads and applies these as score nudges (+0.05 per confirmation, -0.05 per disconfirmation), then clears the file. Prevents catastrophic forgetting — accumulated sigma feedback persists across rebuilds. Grid schema bumped to v3.
+- **Buffer phase portrait** — `alpha-reinforce` now computes and records a buffer state vector (W, W', active concepts, clusters, hit rate, error rate) to `.buffer_trajectory` (JSONL, one snapshot per day). `alpha-health` displays the last 5 trajectory snapshots as a phase portrait table. Tracks the buffer's dynamical evolution over sessions. Inspired by Kirsanov's Neural Dynamics: qualitative properties emerge from phase space geometry.
+
 ## [buffer 2.2.0] - 2026-03-11
 
 ### Wholeness, Spreading Activation, and Upward Promotion

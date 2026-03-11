@@ -148,17 +148,19 @@ def compute_sigma_score(concept_id, entry, context_tokens, cluster_data,
 # Grid construction
 # ---------------------------------------------------------------------------
 
-def build_grid(index, hot, scoring_fn=None, top_n=5):
+def build_grid(index, hot, scoring_fn=None, top_n=5, sigma_scores=None):
     """Build the relevance grid from index + hot layer.
 
     For each coordinate (global, thread), score all w: entries with
-    combined alpha*sigma, keep top_n per cell.
+    combined alpha*sigma, keep top_n per cell. sigma_scores (W') from
+    continuous adjustment provide real-time boosts between reinforce runs.
 
     Args:
         index: alpha index.json contents (with reinforcement, clusters)
         hot: handoff.json contents (with orientation, open_threads)
         scoring_fn: pluggable alpha scoring function
         top_n: concepts to keep per cell
+        sigma_scores: optional dict {concept_id: float} from .sigma_scores
 
     Returns:
         grid dict ready for JSON serialization
@@ -188,6 +190,17 @@ def build_grid(index, hot, scoring_fn=None, top_n=5):
     # Build cells
     cells = {}
 
+    # W' boost function: continuous score provides real-time learning boost
+    if sigma_scores is None:
+        sigma_scores = {}
+
+    def _w_prime_boost(eid, base_score):
+        """Apply W' (continuous score) boost to base combined score."""
+        boost = sigma_scores.get(eid, 0.0)
+        if boost > 0:
+            return base_score * (1.0 + min(boost, 2.0))  # cap at 3x
+        return base_score
+
     # --- Global cell ---
     global_scores = []
     for eid, einfo in w_entries.items():
@@ -195,6 +208,7 @@ def build_grid(index, hot, scoring_fn=None, top_n=5):
         sigma = compute_sigma_score(eid, einfo, global_tokens, clusters,
                                      w_to_cluster)
         combined = alpha * sigma if sigma > 0 else alpha * 0.01
+        combined = _w_prime_boost(eid, combined)
         if combined > 0:
             global_scores.append({
                 'id': eid,
@@ -229,6 +243,7 @@ def build_grid(index, hot, scoring_fn=None, top_n=5):
             sigma = compute_sigma_score(eid, einfo, combined_tokens, clusters,
                                          w_to_cluster)
             combined = alpha * sigma if sigma > 0 else 0
+            combined = _w_prime_boost(eid, combined)
             if combined > 0:
                 thread_scores.append({
                     'id': eid,
@@ -246,8 +261,13 @@ def build_grid(index, hot, scoring_fn=None, top_n=5):
     active_work = hot.get('active_work', {})
     phase = active_work.get('phase', '')
 
+    # W' state from continuous scores
+    w_prime = sigma_scores.get('__W_prime', 0)
+    w_prev = sigma_scores.get('__W_prev', 0)
+    boosted_count = sum(1 for eid in w_entries if sigma_scores.get(eid, 0) > 0)
+
     grid = {
-        'schema_version': 2,
+        'schema_version': 3,
         'computed': datetime.now().isoformat(timespec='seconds'),
         'coordinates': {
             'phase': phase,
@@ -256,6 +276,11 @@ def build_grid(index, hot, scoring_fn=None, top_n=5):
         'cells': cells,
         'keyword_index': {},
         'temporal': {},
+        'w_prime': {
+            'W_prime': w_prime,
+            'W_at_build': w_prev,
+            'boosted_concepts': boosted_count,
+        },
     }
 
     return grid
@@ -335,6 +360,75 @@ def update_temporal(grid, hits_log_path):
 
 
 # ---------------------------------------------------------------------------
+# Incremental grid adjustments (non-catastrophic learning)
+# ---------------------------------------------------------------------------
+
+def apply_incremental_adjustments(grid, adjustments_path):
+    """Read .grid_adjustments and nudge cell scores incrementally.
+
+    Each confirmation bumps matched concepts' scores up;
+    each disconfirmation nudges down. This prevents catastrophic
+    forgetting — accumulated sigma feedback persists across rebuilds.
+
+    Returns grid with adjusted scores + clears the adjustments file.
+    """
+    if not adjustments_path.exists():
+        return grid
+
+    # Parse adjustments
+    confirmations = {}  # concept_id -> confirm_count
+    disconfirmations = {}
+    try:
+        with open(adjustments_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    adj = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                for cid in adj.get('concepts', []):
+                    if adj.get('type') == 'confirm':
+                        confirmations[cid] = confirmations.get(cid, 0) + 1
+                    else:
+                        disconfirmations[cid] = disconfirmations.get(cid, 0) + 1
+    except OSError:
+        return grid
+
+    if not confirmations and not disconfirmations:
+        return grid
+
+    # Apply adjustments to cell scores
+    adjust_rate = 0.05  # per confirmation/disconfirmation
+    for cell_key, cell_data in grid.get('cells', {}).items():
+        for concept_entry in cell_data.get('concepts', []):
+            cid = concept_entry.get('id', '')
+            confirms = confirmations.get(cid, 0)
+            disconfirms = disconfirmations.get(cid, 0)
+            if confirms or disconfirms:
+                nudge = (confirms - disconfirms) * adjust_rate
+                concept_entry['score'] = round(
+                    max(0, concept_entry.get('score', 0) + nudge), 2)
+                concept_entry['incremental'] = confirms - disconfirms
+
+    # Record adjustment metadata
+    grid['incremental'] = {
+        'confirmations': sum(confirmations.values()),
+        'disconfirmations': sum(disconfirmations.values()),
+        'concepts_adjusted': len(set(confirmations) | set(disconfirmations)),
+    }
+
+    # Clear adjustments file (consumed)
+    try:
+        adjustments_path.unlink()
+    except OSError:
+        pass
+
+    return grid
+
+
+# ---------------------------------------------------------------------------
 # Main entry point
 # ---------------------------------------------------------------------------
 
@@ -374,14 +468,29 @@ def main():
     with open(hot_path, 'r', encoding='utf-8') as f:
         hot = json.load(f)
 
-    # Build grid
-    grid = build_grid(index, hot, scoring_fn=default_scoring)
+    # Read continuous scores (W' — sigma-driven incremental boosts)
+    sigma_scores_path = buf_dir / '.sigma_scores'
+    sigma_scores = {}
+    if sigma_scores_path.exists():
+        try:
+            with open(sigma_scores_path, 'r', encoding='utf-8') as f:
+                sigma_scores = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Build grid (with continuous score boosts)
+    grid = build_grid(index, hot, scoring_fn=default_scoring,
+                       sigma_scores=sigma_scores)
     entries = index.get('entries', {})
     grid = build_keyword_index(grid, entries)
 
     # Update temporal data
     hits_log = buf_dir / '.sigma_hits'
     grid = update_temporal(grid, hits_log)
+
+    # Apply incremental adjustments (non-catastrophic learning)
+    adj_path = buf_dir / '.grid_adjustments'
+    grid = apply_incremental_adjustments(grid, adj_path)
 
     if args.dry_run:
         print(json.dumps(grid, indent=2))

@@ -2092,6 +2092,180 @@ def _read_sigma_hits(buf_dir):
     return temporal
 
 
+def _read_sigma_errors(buf_dir):
+    """Parse .sigma_errors JSONL into prediction error summary.
+
+    Returns dict with gap_keywords (keyword -> count) and false_pos_count.
+    """
+    errors_path = buf_dir / '.sigma_errors'
+    if not errors_path.exists():
+        return {'gap_keywords': {}, 'false_pos_count': 0, 'total_errors': 0}
+
+    gap_keywords = {}
+    false_pos_count = 0
+    total = 0
+    try:
+        with open(errors_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                total += 1
+                if entry.get('type') == 'gap':
+                    for kw in entry.get('keywords', []):
+                        gap_keywords[kw] = gap_keywords.get(kw, 0) + 1
+                elif entry.get('type') == 'false_pos':
+                    false_pos_count += 1
+    except OSError:
+        pass
+
+    return {
+        'gap_keywords': gap_keywords,
+        'false_pos_count': false_pos_count,
+        'total_errors': total,
+    }
+
+
+def compute_phase_state(buf_dir, index, temporal_data, error_data):
+    """Compute buffer phase state vector for trajectory tracking.
+
+    The buffer is a dynamical system with observable state variables:
+      - hot_usage: hot layer line count / max
+      - alpha_density: w: entries / (w: + unresolved)
+      - W_ratio: wholeness energy (coherence)
+      - W_prime: wholeness gradient (learning rate)
+      - hit_rate: sigma hits / total messages (engagement)
+      - error_rate: prediction errors / total (blind spots)
+      - cluster_count: structural complexity
+
+    Tracking this vector over sessions reveals trajectories, attractors,
+    and bifurcation candidates (Kirsanov Neural Dynamics).
+    """
+    entries = index.get('entries', {})
+    w_count = sum(1 for e in entries if e.startswith('w:'))
+    cw_count = sum(1 for e in entries if e.startswith('cw:'))
+    wholeness = index.get('wholeness', {})
+    clusters = index.get('clusters', [])
+
+    # Read sigma scores for W'
+    scores_path = buf_dir / '.sigma_scores'
+    sigma_scores = {}
+    if scores_path.exists():
+        try:
+            with open(scores_path, 'r', encoding='utf-8') as f:
+                sigma_scores = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Read tick counter for hit rate computation
+    ticks_path = buf_dir / '.sigma_ticks'
+    total_ticks = 0
+    try:
+        if ticks_path.exists():
+            with open(ticks_path, 'r') as f:
+                total_ticks = int(f.read().strip() or '0')
+    except (ValueError, OSError):
+        pass
+
+    total_hits = sum(t.get('ref_count', 0) for t in temporal_data.values())
+    total_errors = error_data.get('total_errors', 0)
+
+    return {
+        'w_entries': w_count,
+        'cw_entries': cw_count,
+        'W': wholeness.get('W', 0),
+        'W_ratio': wholeness.get('W_ratio', 0.0),
+        'W_prime': sigma_scores.get('__W_prime', 0),
+        'active_concepts': wholeness.get('active_count', 0),
+        'cluster_count': len(clusters),
+        'total_hits': total_hits,
+        'total_errors': total_errors,
+        'total_ticks': total_ticks,
+        'hit_rate': round(total_hits / max(total_ticks, 1), 4),
+        'error_rate': round(total_errors / max(total_ticks, 1), 4),
+        'date': str(date.today()),
+    }
+
+
+def record_phase_trajectory(buf_dir, state):
+    """Append phase state to .buffer_trajectory (JSONL).
+
+    Each line is a dated snapshot of the buffer's dynamical state.
+    Deduplicates by date — only one entry per day.
+    """
+    traj_path = buf_dir / '.buffer_trajectory'
+
+    # Check if today already recorded
+    today = state.get('date', str(date.today()))
+    existing_lines = []
+    try:
+        if traj_path.exists():
+            with open(traj_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        if entry.get('date') == today:
+                            continue  # replace today's entry
+                    except json.JSONDecodeError:
+                        pass
+                    existing_lines.append(line)
+    except OSError:
+        pass
+
+    existing_lines.append(json.dumps(state))
+
+    try:
+        with open(traj_path, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(existing_lines) + '\n')
+    except OSError:
+        pass
+
+
+def _read_phase_trajectory(buf_dir, last_n=10):
+    """Read recent phase trajectory entries."""
+    traj_path = buf_dir / '.buffer_trajectory'
+    if not traj_path.exists():
+        return []
+
+    entries = []
+    try:
+        with open(traj_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    except OSError:
+        pass
+
+    return entries[-last_n:]
+
+
+def _read_coactivation(buf_dir):
+    """Read .sigma_coactivation resonator data.
+
+    Returns dict of 'id_a|id_b' -> count (co-firing frequency).
+    """
+    coact_path = buf_dir / '.sigma_coactivation'
+    if not coact_path.exists():
+        return {}
+    try:
+        with open(coact_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+
 # ---------------------------------------------------------------------------
 # Subcommand: alpha-reinforce
 # ---------------------------------------------------------------------------
@@ -2384,12 +2558,19 @@ def cmd_alpha_reinforce(args):
         'computed': datetime.now().strftime('%Y-%m-%d'),
     })
 
+    # Phase portrait: record trajectory snapshot at batch checkpoint
+    error_data = _read_sigma_errors(buf_dir)
+    phase_state = compute_phase_state(buf_dir, index, temporal_data, error_data)
+    record_phase_trajectory(buf_dir, phase_state)
+
     result_summary['status'] = 'ok'
     result_summary['wholeness'] = wholeness
+    result_summary['phase_state'] = phase_state
     result_summary['message'] = (
         f"Wrote reinforcement ({len(reinforcement)} entries) + "
         f"cw_graph ({len(cw_edges)} edges) + wholeness (W={wholeness['W']}) "
-        f"to index.json. Adjacency cache: {len(adj)} concepts."
+        f"to index.json. Adjacency cache: {len(adj)} concepts. "
+        f"Phase trajectory updated."
     )
     print(json.dumps(result_summary, indent=2))
 
@@ -2792,6 +2973,66 @@ def cmd_alpha_health(args):
             )
         if len(promotion_candidates) > 10:
             lines.append(f"  ... and {len(promotion_candidates) - 10} more")
+
+    # Co-activation resonance (Kirsanov resonator dynamics)
+    coact = _read_coactivation(buf_dir)
+    if coact:
+        top_pairs = sorted(coact.items(), key=lambda x: x[1], reverse=True)
+        lines.append("")
+        lines.append(
+            f"--- RESONANCE PAIRS ({len(coact)} co-activation pairs) ---"
+        )
+        for pair_key, count in top_pairs[:8]:
+            ids = pair_key.split('|')
+            c1 = entries.get(ids[0], {}).get('concept', '?') if len(ids) > 0 else '?'
+            c2 = entries.get(ids[1], {}).get('concept', '?') if len(ids) > 1 else '?'
+            if ':' in c1:
+                c1 = c1.split(':', 1)[1]
+            if ':' in c2:
+                c2 = c2.split(':', 1)[1]
+            lines.append(f"  {count:3d}x  {c1} <-> {c2}")
+        if len(top_pairs) > 8:
+            lines.append(f"  ... and {len(top_pairs) - 8} more")
+
+    # Phase portrait trajectory (Kirsanov Neural Dynamics)
+    trajectory = _read_phase_trajectory(buf_dir, last_n=5)
+    if trajectory:
+        lines.append("")
+        lines.append(f"--- PHASE PORTRAIT (last {len(trajectory)} snapshots) ---")
+        wp_label = "W'"
+        lines.append(
+            f"  {'Date':12s} {'W':>4s} {'W_r':>6s} {wp_label:>5s} "
+            f"{'Hits':>5s} {'Err':>4s} {'Cl':>3s} {'Active':>6s}"
+        )
+        for snap in trajectory:
+            lines.append(
+                f"  {snap.get('date', '?'):12s} "
+                f"{snap.get('W', 0):4d} "
+                f"{snap.get('W_ratio', 0):6.4f} "
+                f"{snap.get('W_prime', 0):5.2f} "
+                f"{snap.get('total_hits', 0):5d} "
+                f"{snap.get('total_errors', 0):4d} "
+                f"{snap.get('cluster_count', 0):3d} "
+                f"{snap.get('active_concepts', 0):6d}"
+            )
+
+    # Prediction errors (Kirsanov predictive coding)
+    error_data = _read_sigma_errors(buf_dir)
+    if error_data['total_errors'] > 0:
+        lines.append("")
+        lines.append(
+            f"--- PREDICTION ERRORS ({error_data['total_errors']} total, "
+            f"{error_data['false_pos_count']} false positives) ---"
+        )
+        # Top gap keywords — concepts the user discusses but alpha doesn't have
+        gap_kws = error_data['gap_keywords']
+        if gap_kws:
+            top_gaps = sorted(gap_kws.items(), key=lambda x: x[1], reverse=True)
+            lines.append("  Gap keywords (user discusses, alpha lacks):")
+            for kw, count in top_gaps[:10]:
+                lines.append(f"    {kw:25s} x{count}")
+            if len(top_gaps) > 10:
+                lines.append(f"    ... and {len(top_gaps) - 10} more")
 
     lines.append("")
     lines.append("=" * 60)

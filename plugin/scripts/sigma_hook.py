@@ -669,6 +669,7 @@ def record_grid_hit(buffer_dir, concept_ids):
 
     Format: one line per hit — "2026-03-09 w:62 w:125"
     Append-only; cleared at grid rebuild.
+    Also records co-activation pairs for resonator dynamics.
     """
     if not concept_ids:
         return
@@ -681,19 +682,138 @@ def record_grid_hit(buffer_dir, concept_ids):
     except OSError:
         pass
 
+    # Resonator: record co-activation pairs (concepts fired together)
+    if len(concept_ids) >= 2:
+        _record_co_activation(buffer_dir, concept_ids)
+
+
+def _record_co_activation(buffer_dir, concept_ids):
+    """Record co-activation pairs for resonator dynamics.
+
+    Concepts that fire together in the same sigma hit are co-activated.
+    Pair weight increments each time they co-fire — resonance builds.
+
+    Format: JSON dict of "id_a|id_b" -> count (sorted IDs for canonical key).
+    """
+    coact_path = os.path.join(buffer_dir, '.sigma_coactivation')
+    coact = {}
+    try:
+        if os.path.exists(coact_path):
+            with open(coact_path, 'r', encoding='utf-8') as f:
+                coact = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        coact = {}
+
+    # Generate pairs (sorted canonical keys)
+    ids = sorted(set(concept_ids))
+    for i in range(len(ids)):
+        for j in range(i + 1, len(ids)):
+            key = f"{ids[i]}|{ids[j]}"
+            coact[key] = coact.get(key, 0) + 1
+
+    try:
+        with open(coact_path, 'w', encoding='utf-8') as f:
+            json.dump(coact, f)
+    except OSError:
+        pass
+
+
+def record_grid_adjustment(buffer_dir, cell_key, concept_ids, hit=True):
+    """Record incremental grid adjustment for non-catastrophic learning.
+
+    Instead of global grid rebuild replacing all context, sigma hits/misses
+    accumulate as adjustments that the next grid build incorporates.
+
+    Each adjustment is a cell confirmation (hit) or disconfirmation (miss).
+    Grid builder reads these to nudge cell scores without full recompute.
+
+    Format: JSONL — {cell, concepts, type, date}
+    """
+    if not concept_ids:
+        return
+
+    from datetime import date
+    adj_path = os.path.join(buffer_dir, '.grid_adjustments')
+    entry = json.dumps({
+        'cell': cell_key,
+        'concepts': concept_ids[:5],
+        'type': 'confirm' if hit else 'disconfirm',
+        'date': str(date.today()),
+    })
+    try:
+        with open(adj_path, 'a', encoding='utf-8') as f:
+            f.write(entry + '\n')
+    except OSError:
+        pass
+
+
+def record_prediction_error(buffer_dir, keywords, matched_concepts, grid_hit):
+    """Record prediction errors for predictive coding feedback loop.
+
+    Two error types (Kirsanov predictive coding):
+      - gap: keyword with high signal but no alpha match (alpha is missing concepts)
+      - false_pos: grid predicted concept relevant but user never engaged it
+
+    False positives are tracked per-grid-cycle — grid rebuild resets them.
+    Gaps accumulate across sessions — they signal structural blind spots.
+
+    Format: JSONL — one JSON object per line.
+    """
+    if not keywords:
+        return
+
+    from datetime import date
+    errors_path = os.path.join(buffer_dir, '.sigma_errors')
+    today = str(date.today())
+
+    lines = []
+
+    # Gap detection: keywords that passed IDF threshold but matched nothing
+    matched_kws = set()
+    for concept_key, _, _ in matched_concepts:
+        concept_lower = concept_key.lower()
+        for kw in keywords:
+            if kw == concept_lower or kw in concept_lower or concept_lower in kw:
+                matched_kws.add(kw)
+
+    unmatched = [kw for kw in keywords if kw not in matched_kws]
+    if unmatched:
+        lines.append(json.dumps({
+            'type': 'gap', 'date': today,
+            'keywords': unmatched[:10],
+        }))
+
+    # False positive: grid fired but no concepts matched via IDF (grid overpredicted)
+    if grid_hit and not matched_concepts:
+        lines.append(json.dumps({
+            'type': 'false_pos', 'date': today,
+            'grid_concepts': grid_hit[:5],
+        }))
+
+    if lines:
+        try:
+            with open(errors_path, 'a', encoding='utf-8') as f:
+                f.write('\n'.join(lines) + '\n')
+        except OSError:
+            pass
+
 
 # ---------------------------------------------------------------------------
 # Spreading activation (Hopfield inference through convergence web)
 # ---------------------------------------------------------------------------
 
-def compute_spread(concept_ids, adjacency, max_spread=2):
+def compute_spread(concept_ids, adjacency, max_spread=2, coactivation=None):
     """Hopfield-style spreading activation through convergence web.
 
     For each activated concept, propagates to 1-hop neighbors.
     Neighbors activated by multiple source concepts rank higher
     (multi-source convergence = stronger field effect).
 
-    Returns list of (neighbor_id, activation_count) tuples.
+    Resonator weighting: if coactivation data exists, neighbors that
+    have historically co-fired with active concepts get a bonus
+    (temporal coherence = resonance).
+
+    Returns list of (neighbor_id, activation_score) tuples.
     """
     if not adjacency or not concept_ids:
         return []
@@ -704,7 +824,14 @@ def compute_spread(concept_ids, adjacency, max_spread=2):
     for cid in concept_ids:
         for neighbor in adjacency.get(cid, []):
             if neighbor not in activated:
-                candidates[neighbor] = candidates.get(neighbor, 0) + 1
+                # Base: structural adjacency count
+                base = candidates.get(neighbor, 0) + 1
+                # Resonator bonus: temporal co-activation history
+                resonance = 0
+                if coactivation:
+                    pair_key = '|'.join(sorted([cid, neighbor]))
+                    resonance = min(coactivation.get(pair_key, 0), 10) * 0.1
+                candidates[neighbor] = base + resonance
 
     ranked = sorted(candidates.items(), key=lambda x: x[1], reverse=True)
     return ranked[:max_spread]
@@ -754,11 +881,55 @@ def update_wholeness(buffer_dir, new_concept_ids, adjacency, edge_count=0):
         pass
 
 
+def update_continuous_scores(buffer_dir, concept_ids, keywords, concept_index):
+    """Update continuous scores (W') — the wholeness gradient.
+
+    Each sigma hit nudges concept scores incrementally:
+      - Hit concepts: score += delta (confirmation = energy descent)
+      - Spread-activated neighbors: score += delta/2 (association boost)
+      - Gap keywords (no match): no score change, but logged as prediction error
+
+    This creates real-time learning between batch alpha-reinforce runs.
+    The user's insight: this IS W' — the rate of change of wholeness.
+
+    Scores stored in .sigma_scores as {concept_id: float}.
+    Grid builder reads these as alpha score boosts.
+    """
+    if not concept_ids:
+        return
+
+    scores_path = os.path.join(buffer_dir, '.sigma_scores')
+    scores = read_json(scores_path) or {}
+
+    DELTA = 0.1  # learning rate per hit
+
+    for cid in concept_ids:
+        scores[cid] = scores.get(cid, 0.0) + DELTA
+
+    # Compute W' (rate of change) from wholeness state
+    wholeness_path = os.path.join(buffer_dir, '.sigma_wholeness')
+    w_state = read_json(wholeness_path)
+    if w_state:
+        w_current = w_state.get('W', 0)
+        w_prev = scores.get('__W_prev', 0)
+        w_prime = w_current - w_prev
+        scores['__W_prev'] = w_current
+        scores['__W_prime'] = w_prime
+
+    try:
+        with open(scores_path, 'w', encoding='utf-8') as f:
+            json.dump(scores, f)
+    except OSError:
+        pass
+
+
 def apply_spread_and_wholeness(buffer_dir, concept_ids, injection):
     """Apply spreading activation and wholeness update to an injection.
 
-    Reads .cw_adjacency cache (written by alpha-reinforce), computes
-    spread neighbors, updates incremental W. Returns modified injection.
+    Reads .cw_adjacency cache (written by alpha-reinforce) and
+    .sigma_coactivation (resonator history), computes spread neighbors
+    with resonance weighting, updates incremental W.
+    Returns modified injection.
     """
     adj_path = os.path.join(buffer_dir, '.cw_adjacency')
     adj_data = read_json(adj_path)
@@ -769,8 +940,12 @@ def apply_spread_and_wholeness(buffer_dir, concept_ids, injection):
     concepts_lookup = adj_data.get('concepts', {})
     edge_count = adj_data.get('edge_count', 0)
 
-    # Spreading activation
-    spread = compute_spread(concept_ids, adjacency)
+    # Load co-activation data for resonator weighting
+    coact_path = os.path.join(buffer_dir, '.sigma_coactivation')
+    coactivation = read_json(coact_path) or {}
+
+    # Spreading activation (with resonator weighting)
+    spread = compute_spread(concept_ids, adjacency, coactivation=coactivation)
     if spread:
         spread_ids = [sid for sid, _ in spread]
         record_grid_hit(buffer_dir, spread_ids)
@@ -888,6 +1063,12 @@ def main():
     if grid_result is not None:
         injection, concept_ids = grid_result
         record_grid_hit(buffer_dir, concept_ids)
+        # Incremental grid adjustment: confirm this cell hit
+        # Extract cell key from injection format "sigma grid [cell_key]: ..."
+        cell_match = re.search(r'sigma grid \[([^\]]+)\]', injection)
+        if cell_match:
+            record_grid_adjustment(buffer_dir, cell_match.group(1), concept_ids,
+                                    hit=True)
         injection = apply_spread_and_wholeness(buffer_dir, concept_ids, injection)
         emit(_with_resolution(
             {"suppressOutput": True, "systemMessage": injection},
@@ -937,11 +1118,17 @@ def main():
     # LEVEL 2: Alpha concept index (fallthrough — hot skipped or missed)
     # -----------------------------------------------------------------------
     if not concept_index:
+        # No alpha — record all keywords as gaps (alpha not yet populated)
+        record_prediction_error(buffer_dir, keywords, [], None)
         emit(_with_resolution({}, resolution_due))
 
     concept_matches = match_alpha_concepts(
         keywords, concept_index, suppress_list, idf_weights, threshold,
         score_exact=score_exact, min_score=min_score, max_inject=max_inject)
+
+    # Prediction error tracking (Kirsanov predictive coding)
+    record_prediction_error(buffer_dir, keywords, concept_matches, None)
+
     if not concept_matches:
         emit(_with_resolution({}, resolution_due))
 
@@ -953,6 +1140,9 @@ def main():
         if isinstance(ids, list) and ids
     ]
     injection = apply_spread_and_wholeness(buffer_dir, matched_ids, injection)
+
+    # Continuous score adjustment (W' — wholeness gradient)
+    update_continuous_scores(buffer_dir, matched_ids, keywords, concept_index)
 
     emit(_with_resolution(
         {"suppressOutput": True, "systemMessage": injection},

@@ -31,6 +31,20 @@ Three dynamic features operate on the alpha-sigma boundary:
 
 **Upward promotion** (anopressive channel): `alpha-health` reports concepts with 3+ sigma hits as promotion candidates. During `/buffer:off`, review these: frequently activated cold/warm entries may deserve promotion to a more accessible layer. This closes the anapressive-anopressive loop — conservation pushes down (anapressive), promotion pulls up based on operational relevance (anopressive).
 
+### Predictive Coding + Resonator Dynamics (v2.3.0)
+
+Five features from Kirsanov's Neural Dynamics and Brain Learning analysis:
+
+**Prediction error tracking**: Sigma hook records errors to `.sigma_errors` (JSONL). *Gaps* = keywords the user discusses that alpha doesn't have. *False positives* = grid predicted relevance but no IDF match. `alpha-health` reports top gap keywords. Prediction errors drive both inference (spreading) and learning (W').
+
+**Resonator dynamics**: When multiple concepts fire in the same sigma hit, their co-activation pair is recorded in `.sigma_coactivation`. Co-firing frequency builds resonance weights. `compute_spread()` weights neighbors by structural adjacency AND temporal co-activation — concepts that historically fire together spread more strongly. `alpha-health` reports top resonance pairs.
+
+**Continuous score adjustment (W')**: Each sigma hit nudges concept scores in `.sigma_scores` (DELTA=0.1 per hit). Tracks W' (wholeness gradient) — the derivative of the energy function. Grid builder reads these as score boosts (capped at 3x). W is energy, W' is gradient, prediction errors drive the gradient.
+
+**Incremental grid updates**: Sigma hook records cell confirmations to `.grid_adjustments` (JSONL). Grid builder applies nudges (+0.05 per confirmation, -0.05 per disconfirmation), then clears the file. Prevents catastrophic forgetting of accumulated sigma feedback.
+
+**Buffer phase portrait**: `alpha-reinforce` computes a state vector (W, W', active concepts, clusters, hit rate, error rate) and records it to `.buffer_trajectory` (JSONL, one snapshot per day). `alpha-health` displays the last 5 trajectory snapshots. Tracks the buffer's dynamical evolution.
+
 ---
 
 ## Step 1b: Alpha Bin Detection

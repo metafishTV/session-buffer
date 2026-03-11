@@ -11,6 +11,8 @@ from sigma_hook import (
     dynamic_min_score, confidence_threshold, extract_keywords,
     word_match, compute_idf_weights, match_hot, match_alpha_concepts,
     find_source_for_id, format_hot_hits, format_alpha_hits, is_suppressed,
+    compute_spread, record_prediction_error, _record_co_activation,
+    record_grid_adjustment, update_continuous_scores,
 )
 
 
@@ -479,3 +481,189 @@ class TestFindSourceForId:
 
     def test_none_sources_returns_none(self):
         assert find_source_for_id("w:44", None) is None
+
+
+# ---------------------------------------------------------------------------
+# 21. Spreading activation with resonator weighting
+# ---------------------------------------------------------------------------
+
+class TestComputeSpread:
+    """compute_spread does Hopfield-style spreading activation."""
+
+    def test_basic_spread(self):
+        adj = {'w:1': ['w:2', 'w:3'], 'w:2': ['w:1'], 'w:3': ['w:1']}
+        result = compute_spread(['w:1'], adj)
+        ids = [r[0] for r in result]
+        assert 'w:2' in ids
+        assert 'w:3' in ids
+
+    def test_multi_source_convergence(self):
+        adj = {
+            'w:1': ['w:3'], 'w:2': ['w:3'],
+            'w:3': ['w:1', 'w:2'],
+        }
+        result = compute_spread(['w:1', 'w:2'], adj)
+        # w:3 reached from both w:1 and w:2 → highest score
+        assert result[0][0] == 'w:3'
+        assert result[0][1] >= 2  # at least 2 (base structural)
+
+    def test_resonator_boost(self):
+        adj = {'w:1': ['w:2', 'w:3'], 'w:2': ['w:1'], 'w:3': ['w:1']}
+        coact = {'w:1|w:2': 5}  # w:2 co-activated 5 times with w:1
+        result = compute_spread(['w:1'], adj, coactivation=coact)
+        # w:2 should rank higher than w:3 due to resonance
+        scores = {r[0]: r[1] for r in result}
+        assert scores['w:2'] > scores['w:3']
+
+    def test_no_adjacency_returns_empty(self):
+        assert compute_spread(['w:1'], {}) == []
+        assert compute_spread([], {'w:1': ['w:2']}) == []
+
+    def test_max_spread_limit(self):
+        adj = {'w:1': ['w:2', 'w:3', 'w:4', 'w:5']}
+        for wid in ['w:2', 'w:3', 'w:4', 'w:5']:
+            adj[wid] = ['w:1']
+        result = compute_spread(['w:1'], adj, max_spread=2)
+        assert len(result) <= 2
+
+
+# ---------------------------------------------------------------------------
+# 22. Prediction error recording (filesystem-dependent)
+# ---------------------------------------------------------------------------
+
+class TestRecordPredictionError:
+    """record_prediction_error logs gaps and false positives."""
+
+    def test_gap_detection(self, tmp_path):
+        buf_dir = str(tmp_path)
+        keywords = ['alterity', 'bifurcation', 'topology']
+        # Only 'alterity' matched
+        matched = [('alterity', ['w:1'], 3.0)]
+        record_prediction_error(buf_dir, keywords, matched, None)
+
+        errors_path = tmp_path / '.sigma_errors'
+        assert errors_path.exists()
+        import json
+        lines = errors_path.read_text().strip().split('\n')
+        entry = json.loads(lines[0])
+        assert entry['type'] == 'gap'
+        assert 'bifurcation' in entry['keywords']
+        assert 'topology' in entry['keywords']
+        assert 'alterity' not in entry['keywords']
+
+    def test_no_errors_when_all_match(self, tmp_path):
+        buf_dir = str(tmp_path)
+        keywords = ['alterity']
+        matched = [('alterity', ['w:1'], 3.0)]
+        record_prediction_error(buf_dir, keywords, matched, None)
+
+        errors_path = tmp_path / '.sigma_errors'
+        # File might exist but no gap entry (only keyword matched)
+        if errors_path.exists():
+            content = errors_path.read_text().strip()
+            if content:
+                import json
+                for line in content.split('\n'):
+                    entry = json.loads(line)
+                    assert entry['type'] != 'gap' or not entry.get('keywords')
+
+    def test_false_positive(self, tmp_path):
+        buf_dir = str(tmp_path)
+        keywords = ['something']
+        grid_hit = ['w:1', 'w:2']  # grid fired but no IDF match
+        record_prediction_error(buf_dir, keywords, [], grid_hit)
+
+        errors_path = tmp_path / '.sigma_errors'
+        assert errors_path.exists()
+        import json
+        lines = errors_path.read_text().strip().split('\n')
+        has_false_pos = any(
+            json.loads(l).get('type') == 'false_pos' for l in lines if l
+        )
+        assert has_false_pos
+
+
+# ---------------------------------------------------------------------------
+# 23. Co-activation recording (resonator dynamics)
+# ---------------------------------------------------------------------------
+
+class TestCoActivation:
+    """_record_co_activation tracks temporal concept pairs."""
+
+    def test_pairs_recorded(self, tmp_path):
+        buf_dir = str(tmp_path)
+        _record_co_activation(buf_dir, ['w:1', 'w:2', 'w:3'])
+        import json
+        coact = json.loads((tmp_path / '.sigma_coactivation').read_text())
+        assert 'w:1|w:2' in coact
+        assert 'w:1|w:3' in coact
+        assert 'w:2|w:3' in coact
+        assert coact['w:1|w:2'] == 1
+
+    def test_pairs_accumulate(self, tmp_path):
+        buf_dir = str(tmp_path)
+        _record_co_activation(buf_dir, ['w:1', 'w:2'])
+        _record_co_activation(buf_dir, ['w:1', 'w:2'])
+        import json
+        coact = json.loads((tmp_path / '.sigma_coactivation').read_text())
+        assert coact['w:1|w:2'] == 2
+
+
+# ---------------------------------------------------------------------------
+# 24. Grid adjustments (incremental learning)
+# ---------------------------------------------------------------------------
+
+class TestRecordGridAdjustment:
+    """record_grid_adjustment logs cell confirmations."""
+
+    def test_confirm_recorded(self, tmp_path):
+        buf_dir = str(tmp_path)
+        record_grid_adjustment(buf_dir, 'global', ['w:1', 'w:2'], hit=True)
+        import json
+        adj_path = tmp_path / '.grid_adjustments'
+        assert adj_path.exists()
+        entry = json.loads(adj_path.read_text().strip())
+        assert entry['cell'] == 'global'
+        assert entry['type'] == 'confirm'
+
+    def test_disconfirm_recorded(self, tmp_path):
+        buf_dir = str(tmp_path)
+        record_grid_adjustment(buf_dir, 'global', ['w:1'], hit=False)
+        import json
+        entry = json.loads((tmp_path / '.grid_adjustments').read_text().strip())
+        assert entry['type'] == 'disconfirm'
+
+
+# ---------------------------------------------------------------------------
+# 25. Continuous scores (W')
+# ---------------------------------------------------------------------------
+
+class TestUpdateContinuousScores:
+    """update_continuous_scores adjusts concept scores incrementally."""
+
+    def test_scores_increment(self, tmp_path):
+        buf_dir = str(tmp_path)
+        update_continuous_scores(buf_dir, ['w:1', 'w:2'], [], {})
+        import json
+        scores = json.loads((tmp_path / '.sigma_scores').read_text())
+        assert scores['w:1'] == pytest.approx(0.1)
+        assert scores['w:2'] == pytest.approx(0.1)
+
+    def test_scores_accumulate(self, tmp_path):
+        buf_dir = str(tmp_path)
+        update_continuous_scores(buf_dir, ['w:1'], [], {})
+        update_continuous_scores(buf_dir, ['w:1'], [], {})
+        import json
+        scores = json.loads((tmp_path / '.sigma_scores').read_text())
+        assert scores['w:1'] == pytest.approx(0.2)
+
+    def test_w_prime_tracked(self, tmp_path):
+        import json as json_mod
+        buf_dir = str(tmp_path)
+        # Create wholeness state
+        w_state = {'W': 5, 'W_potential': 20, 'active_set': []}
+        (tmp_path / '.sigma_wholeness').write_text(json_mod.dumps(w_state))
+        update_continuous_scores(buf_dir, ['w:1'], [], {})
+        scores = json_mod.loads((tmp_path / '.sigma_scores').read_text())
+        assert '__W_prev' in scores
+        assert '__W_prime' in scores
