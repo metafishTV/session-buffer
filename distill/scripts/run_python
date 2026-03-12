@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Cross-platform Python resolver. Tries python3 first, falls back to python.
+if command -v python3 &>/dev/null; then
+    exec python3 "$@"
+elif command -v python &>/dev/null; then
+    exec python "$@"
+else
+    echo "distill: Python 3.10+ required but not found on PATH" >&2
+    echo "Install Python from https://python.org or add python3 to PATH" >&2
+    exit 1
+fi

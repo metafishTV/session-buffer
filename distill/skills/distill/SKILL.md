@@ -18,6 +18,21 @@ Sub-skills use two interaction levels:
 
 After calling `AskUserQuestion`, you MUST stop generating. Do not continue to the next step. Do not prefetch, prepare, or begin any subsequent work. Do not write "while we wait" or "in the meantime." Your turn ENDS with the `AskUserQuestion` call. The next step begins ONLY in your next turn, AFTER the user has responded. This is a hard gate, not a courtesy pause. If you catch yourself writing anything after the `AskUserQuestion` call, STOP IMMEDIATELY.
 
+**⚠ EXTRACTION PROHIBITION — absolute, no exceptions.**
+
+You MUST NOT extract text, images, or figures from source documents outside the `distill:extract` sub-skill pipeline. This means:
+
+- **NO** direct PyMuPDF / `fitz.open()` / `pdfplumber` / `pdf2image` calls in Bash or subagents
+- **NO** ad-hoc text extraction scripts that bypass `distill_scan.py`
+- **NO** "quick" or "lightweight" extraction that skips figure budget gating
+- **NO** subagent-based extraction that circumvents the 6 mandatory checkpoints
+
+The extract skill exists because raw extraction misses figures, skips quality gates, and produces incomplete distillations. Every source — no matter how "simple" — goes through the full extract pipeline: `distill_scan.py` → figure budget gate → route selection → extraction → crop verification → stats output.
+
+If you find yourself writing `import fitz` or `import pdfplumber` in a Bash command during a distillation, **STOP**. You are bypassing the pipeline. Invoke `distill:extract` instead.
+
+A PreToolUse hook enforces this structurally — ad-hoc extraction commands will be blocked with an error message.
+
 Distill a source document into structured reference knowledge.
 
 ## Project Discovery
