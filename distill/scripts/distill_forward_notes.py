@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""distill_forward_notes.py — Forward note health, clustering, and consolidation.
+"""distill_forward_notes.py — Forward note health, clustering, consolidation, and templates.
 
 Scans forward_notes.json for related clusters, superseded notes, and
 consolidation candidates. Cross-references descriptions against alpha
@@ -8,17 +8,14 @@ concept_index for semantic similarity.
 Commands:
   health       — Cluster analysis, supersession detection, orphan scan
   consolidate  — Merge specified notes into one (user-reviewed)
+  check-new    — Similarity check for new candidates
+  template     — Output ready-to-fill template with current registry state
 
 Usage:
-    python distill_forward_notes.py health \
-        --notes forward_notes.json \
-        [--alpha-dir .claude/buffer/alpha]
-
-    python distill_forward_notes.py consolidate \
-        --notes forward_notes.json \
-        --merge 5.72 5.79 --into 5.72 \
-        [--description "merged description"] \
-        [--dry-run]
+    python distill_forward_notes.py template --notes forward_notes.json
+    python distill_forward_notes.py health --notes forward_notes.json [--alpha-dir ...]
+    python distill_forward_notes.py consolidate --notes forward_notes.json --merge 5.72 5.79 --into 5.72
+    python distill_forward_notes.py check-new --notes forward_notes.json --description "..."
 
 Dependencies: Python 3.10+ (stdlib only)
 """
@@ -30,7 +27,8 @@ import json
 import re
 import sys
 from pathlib import Path
-from datetime import date
+from datetime import date, datetime
+import time
 
 if sys.platform == 'win32' and __name__ == '__main__':
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
@@ -505,6 +503,75 @@ def cmd_check_new(args):
 
 
 # ---------------------------------------------------------------------------
+# Template command
+# ---------------------------------------------------------------------------
+
+MARKER_TTL_SECONDS = 7200  # 2 hours
+
+
+def touch_marker(notes_path: Path):
+    """Write .fn_queried marker next to forward_notes.json (timestamp-based TTL)."""
+    marker = notes_path.parent / '.fn_queried'
+    marker.write_text(str(time.time()), encoding='utf-8')
+
+
+def marker_is_valid(notes_path: Path) -> bool:
+    """Check if .fn_queried marker exists and is within TTL."""
+    marker = notes_path.parent / '.fn_queried'
+    if not marker.exists():
+        return False
+    try:
+        ts = float(marker.read_text(encoding='utf-8').strip())
+        return (time.time() - ts) < MARKER_TTL_SECONDS
+    except (ValueError, OSError):
+        return False
+
+
+def cmd_template(args):
+    """Output a ready-to-fill forward note template with current registry state."""
+    notes_path = Path(args.notes)
+    if not notes_path.exists():
+        print(f"Registry not found: {notes_path}")
+        print(f"To create: start at next_number: 70 (§5.1–§5.69 reserved)")
+        return
+
+    with open(notes_path, 'r', encoding='utf-8') as f:
+        registry = json.load(f)
+
+    notes = registry.get('notes', {})
+    next_num = registry.get('next_number', 70)
+
+    # Status breakdown
+    by_status = {}
+    for nid, note in notes.items():
+        s = note.get('status', 'unknown')
+        by_status.setdefault(s, []).append(nid)
+
+    # Output
+    today = date.today().isoformat()
+    print(f"next_number: {next_num}  |  total: {len(notes)}")
+    for status, ids in sorted(by_status.items()):
+        print(f"  {status}: {len(ids)}  [{', '.join(sorted(ids)[-5:])}{'...' if len(ids) > 5 else ''}]")
+
+    print()
+    print("Template entry:")
+    template = {
+        f"5.{next_num}": {
+            "source": "FILL: Source_Label",
+            "description": "FILL: one-line description",
+            "status": "candidate",
+            "date": today,
+        }
+    }
+    print(json.dumps(template, indent=2))
+    print()
+    print(f"After adding → run: distill_forward_notes.py check-new --notes {args.notes} --description \"...\"")
+
+    # Touch marker so the write guard knows we've consulted the registry
+    touch_marker(notes_path)
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -541,14 +608,22 @@ def main():
     check_parser.add_argument('--alpha-dir', default=None)
     check_parser.add_argument('--threshold', type=float, default=0.2)
 
+    # template (ready-to-fill template + registry state)
+    tmpl_parser = subparsers.add_parser('template',
+                                         help='Output template with current registry state')
+    tmpl_parser.add_argument('--notes', required=True, help='Path to forward_notes.json')
+
     args = parser.parse_args()
 
-    if args.command == 'health':
-        cmd_health(args)
-    elif args.command == 'consolidate':
-        cmd_consolidate(args)
-    elif args.command == 'check-new':
-        cmd_check_new(args)
+    commands = {
+        'health': cmd_health,
+        'consolidate': cmd_consolidate,
+        'check-new': cmd_check_new,
+        'template': cmd_template,
+    }
+    fn = commands.get(args.command)
+    if fn:
+        fn(args)
     else:
         parser.print_help()
 
