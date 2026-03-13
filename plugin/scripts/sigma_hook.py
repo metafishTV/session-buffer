@@ -20,12 +20,12 @@ Cascade levels:
   2. Alpha — concept_index fallthrough (only when hot misses)
 
 Output format (ultra-minimal):
-  sigma hot: thread: [noted] R&B deep review.
-  sigma alpha: w:62 alterity (Levinas) | w:73 rhizomatic (DG)
+  sigma hot: thread: [noted] API refactor review.
+  sigma alpha: w:62 dependency-injection (concept-A) | w:73 event-sourcing (concept-B)
 
 Scoring model:
   IDF weight per keyword = 1 / max(1, num_concepts_matched)
-    "alterity" matches 1 concept  → weight 1.0
+    "injection" matches 1 concept  → weight 1.0
     "structure" matches 12 concepts → weight 0.08
     "review" matches 0 concepts   → weight 0.0
   Threshold = 0.8 + non-linear(num_keywords) (scales with prompt size)

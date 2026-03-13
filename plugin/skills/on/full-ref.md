@@ -8,7 +8,7 @@ These commands extend the core `buffer_manager.py` tooling for reference memory 
 
 - `alpha-read --buffer-dir .claude/buffer/` — Read alpha bin index, output summary. For Step 1b.
 - `alpha-query --buffer-dir .claude/buffer/ --id w:218` — Retrieve specific referent by ID. For Step 4 pointer resolution.
-- `alpha-query --buffer-dir .claude/buffer/ --source Sartre` — List all entries from a source.
+- `alpha-query --buffer-dir .claude/buffer/ --source [source-name]` — List all entries from a source.
 - `alpha-query --buffer-dir .claude/buffer/ --concept totalization` — Search by concept name.
 - `alpha-validate --buffer-dir .claude/buffer/` — Check alpha bin integrity (index vs files on disk).
 - `alpha-write --buffer-dir .claude/buffer/` — Write new alpha entries (JSON on stdin -> `.md` files + `index.json` update). Used by `/distill` and `/buffer:off`.
@@ -27,13 +27,13 @@ Three dynamic features operate on the alpha-sigma boundary:
 
 **Wholeness (W)**: A rolling energy scalar measuring coherence of the active concept field. W = count of convergence web edges where both endpoints are active (via sigma hits). Computed by `alpha-reinforce` and updated incrementally by the sigma hook on every activation. Higher W = more coherent session engagement with the convergence web. Reported in `alpha-health`.
 
-**Spreading activation**: When the sigma hook matches a concept, it propagates to 1-hop neighbors in the convergence web (via `.cw_adjacency` cache). Neighbors activated by multiple source concepts rank higher. Injection format: `sigma grid [cell]: w:62 alterity (levinas) | spread: w:73 rhizomatic`. This creates Hopfield-style pattern completion — mentioning one concept surfaces structurally adjacent concepts the user didn't explicitly name.
+**Spreading activation**: When the sigma hook matches a concept, it propagates to 1-hop neighbors in the convergence web (via `.cw_adjacency` cache). Neighbors activated by multiple source concepts rank higher. Injection format: `sigma grid [cell]: w:62 concept-A (source-1) | spread: w:73 concept-B`. This creates Hopfield-style pattern completion — mentioning one concept surfaces structurally adjacent concepts the user didn't explicitly name.
 
 **Upward promotion** (anopressive channel): `alpha-health` reports concepts with 3+ sigma hits as promotion candidates. During `/buffer:off`, review these: frequently activated cold/warm entries may deserve promotion to a more accessible layer. This closes the anapressive-anopressive loop — conservation pushes down (anapressive), promotion pulls up based on operational relevance (anopressive).
 
 ### Predictive Coding + Resonator Dynamics (v2.3.0)
 
-Five features from Kirsanov's Neural Dynamics and Brain Learning analysis:
+Five features inspired by predictive coding and neural dynamics research:
 
 **Prediction error tracking**: Sigma hook records errors to `.sigma_errors` (JSONL). *Gaps* = keywords the user discusses that alpha doesn't have. *False positives* = grid predicted relevance but no IDF match. `alpha-health` reports top gap keywords. Prediction errors drive both inference (spreading) and learning (W').
 

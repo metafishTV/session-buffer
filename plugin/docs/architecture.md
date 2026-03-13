@@ -48,11 +48,10 @@ The alpha bin separates **reference memory** (static, query-on-demand, no decay)
 .claude/buffer/alpha/
   index.json                     # Lightweight manifest (only file loaded by default)
   _framework/                    # User's foundational framework definitions
-    foundational_triad.md        # w:1-w:4
-    dialectic.md                 # w:5-w:8
-    T.md / A.md / P.md / S.md   # w:9-w:36
-    RIP.md                       # w:37-w:43
-  sartre-early/                  # Per-source folder
+    core_concepts.md             # w:1-w:4
+    methodology.md               # w:5-w:8
+    domain_terms.md              # w:9-w:36
+  author-source-early/           # Per-source folder
     w044.md                      # Individual cross_source referent
     w045.md
     cw013.md                     # Individual convergence_web referent
@@ -89,8 +88,8 @@ The beta bin captures **narrative knowledge** — the intellectual trajectory of
   "ts": "2026-03-10T14:32:00",
   "tick": "autosave|handoff|compact|manual",
   "r": 0.72,
-  "text": "User pushed back on RIP interpretation — clarified it's Preservation/Praxis, not Projection.",
-  "tags": ["correction", "rip"],
+  "text": "User pushed back on API interpretation — clarified it's event-driven, not request-response.",
+  "tags": ["correction", "architecture"],
   "promoted": false
 }
 ```
@@ -106,12 +105,12 @@ The beta bin captures **narrative knowledge** — the intellectual trajectory of
 
 | Signal | Score boost | Example |
 |--------|------------|---------|
-| User correction | +0.3 | "RIP means X not Y" |
-| Convergence / unexpected connection | +0.3 | "Sartre and DeLanda converge on same structure" |
+| User correction | +0.3 | "Term X means Y not Z" |
+| Convergence / unexpected connection | +0.3 | "Source A and Source B converge on same structure" |
 | User emphasis | +0.3 | User explicitly flagged importance |
 | Named decision | +0.2 | "Chose inline extraction over cross-plugin" |
-| Surprise / unexpected | +0.2 | "RH mapping to ζ was structural, not metaphorical" |
-| Framework touch | +0.2 | Relates to foundational triad, TAPS, RIP |
+| Surprise / unexpected | +0.2 | "Mapping to concept-X was structural, not metaphorical" |
+| Framework touch | +0.2 | Relates to core framework concepts |
 | Routine progress | +0.0 | "Continuing implementation of Phase 3" |
 | Mechanical | +0.0 | "Tests pass", "committed" |
 
