@@ -432,6 +432,14 @@ Known Issues:    [clean run | N issues logged]
 
 This is informational only — do not auto-recover.
 
+**Author folder suggestion**: After printing the report, count distillation files per first-author prefix in `[distillation_dir]`. If any author has 3+ distillations and their files are NOT already in a subdirectory, append:
+
+```
+📁 [Author] has [N] distillations. Consider organizing into [distillation_dir]/[Author]/?
+```
+
+This is a suggestion only — present via `AskUserQuestion` with options "Organize into folder" / "Keep flat". If the user accepts, move the distillation files, interpretation files, and figure directories, then update INDEX.md paths accordingly. If declined, do not ask again for this author (write a `.author_folders_declined` marker with the author name).
+
 **Minimal summary** (when `.distill_stats` is not available — e.g., File-Only Mode):
 
 ```
@@ -539,10 +547,17 @@ After each distillation (both modes), update the project README:
    ```
    Example: `| Taalbi_LongRunPatterns_2025_Paper | 2026-03-01 | Route A | text-only, clean extraction, 12 key concepts |`
 
-2. **Glossary section**: mirror new terms added to the project skill's terminology glossary. Use the same table format:
+2. **Glossary section**: Add new terms from this distillation's key concepts. Use this template directly — do NOT read the project SKILL.md to learn the format:
    ```
-   | [Term] | [1-2 sentence operational definition] | [Source-Label where first seen] |
+   | [Term] | [1-2 sentence operational definition as used in THIS project] | [Source-Label] |
    ```
+   **Which terms to add**: Only terms that appear in the interpretation's Key Concepts table AND are not already in the glossary. Check existing rows before adding. Skip generic terms that need no project-specific definition. Maximum 5 new terms per distillation.
+
+   **Also update the project SKILL.md glossary** (`## Project Terminology Glossary` section) with the same entries in the same format:
+   ```
+   | [Term] | [1-2 sentence operational definition as used in THIS project] | [Source-Label] |
+   ```
+   The project SKILL.md glossary is the canonical source; the README mirrors it. Append new rows to the existing table — do NOT rewrite the section.
 
 3. **Tools Available table**: update if a new tool was installed during this distillation. Change status from `demand-install` to `installed: [version]`.
 

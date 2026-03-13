@@ -103,6 +103,14 @@ After extraction completes, hand off to the `analyze` skill with the extracted t
 
 ---
 
+## Agent Delegation
+
+**For PDF sources with >5 total pages**: Delegate the mechanical extraction work (Phase 1 scan, route selection, figure budget gating, figure extraction, crop verification, stats output) to the `source-extractor` agent. This agent runs on haiku for token efficiency and handles the pipeline autonomously, returning a JSON summary with extracted text path, figure manifest, and stats. The parent conversation retains control of all `AskUserQuestion` checkpoints — the agent stops at each FULL STOP gate and returns control.
+
+**For simple sources** (≤5 pages, web, image, recording): Handle inline — agent overhead exceeds the benefit for small sources.
+
+**For batch/multi-source**: Dispatch one `source-extractor` agent per source in parallel (up to 3 concurrent). Each agent handles its own extraction independently. Collect results before proceeding to analyze.
+
 ## PDF Extraction Pipeline
 
 Two-phase strategy: PyMuPDF scans every page first (fast content detection), then routes to specialist tools based on what it finds. Move to Route G ONLY if PyMuPDF itself fails to open the file.
@@ -394,7 +402,27 @@ python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_transcribe.py "<URL>" --output _dis
 ```
 Tries in order: (1) extract captions via yt-dlp, (2) download audio + transcribe with faster-whisper. If yt-dlp not installed, trigger Demand-Install Protocol (required for YouTube).
 
-**Step R3: YouTube keyframe capture** -- If browser MCP tools available:
+**Step R3: Slide/keyframe extraction** -- Attempt automated slide extraction first, then fall back to manual capture:
+
+**R3a: Automated slide extraction** (preferred):
+```
+python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_slides.py --probe
+```
+If opencv is available (exit 0), run the slide extractor:
+```
+python ${CLAUDE_PLUGIN_ROOT}/scripts/distill_slides.py "<video_path_or_url>" --outdir [figures_dir]/[Source-Label]/ --label [Source-Label] --threshold 0.85
+```
+This uses SSIM-based frame comparison to detect slide transitions and saves unique slides as PNGs with a `_slide_manifest.json`. Works for lecture videos, presentations, and any content with distinct visual segments.
+
+**Demand-Install for opencv** (exit 2 from probe):
+
+**MANDATORY POPUP**: Offer opencv installation:
+- "Install opencv-python-headless (~30MB) — recommended for slide extraction"
+- "Skip — use manual keyframe capture instead"
+
+**FULL STOP** — see parent skill ENFORCEMENT RULE.
+
+**R3b: Manual keyframe capture** (fallback, or for non-slide content): If browser MCP tools available:
 1. Navigate to video URL, pause at key moments (intro, slide transitions)
 2. Screenshot and crop relevant frames (slides, diagrams, whiteboard content)
 3. Save to `[figures_dir]/[Source-Label]/frame_NN_[MM-SS].png`
@@ -524,6 +552,7 @@ When a specialist tool is needed but not installed (confirmed by runtime check),
    - pytesseract: `pip install pytesseract` (<1MB) + Tesseract binary (same as ocrmypdf)
    - GROBID: `docker pull lfoppiano/grobid:0.8.1 && docker run -d --name grobid -p 8070:8070 lfoppiano/grobid:0.8.1` (~2GB)
    - yt-dlp: `pip install yt-dlp` (~10MB, required for YouTube)
+   - opencv-python-headless: `pip install opencv-python-headless` (~30MB, slide extraction from video)
    - faster-whisper: `pip install faster-whisper` (<5MB install, ~150MB model on first use)
 4. **If user accepts**: Install, verify import, update tooling profile (`demand-install` -> `installed: <version>`), proceed.
 5. **If user declines**: Fall back gracefully per-route. Do NOT ask again this session.

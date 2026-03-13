@@ -124,7 +124,7 @@ For **series**: also ask whether the user wants:
 - Combined transcript/text (single `.md` with part headings) — better for tracing cross-part arguments
 - Separate files per part (individual `.md` files) — better for targeted retrieval
 
-For **independent batch**: process each source through the full pipeline sequentially. No cross-referencing between items.
+For **independent batch**: dispatch extraction via `source-extractor` agents in parallel (up to 3 concurrent, each on haiku). After all extractions complete, process analyze and integrate sequentially per source. This parallelizes the expensive mechanical phase while preserving analytic quality.
 
 ## Arguments
 
@@ -139,3 +139,5 @@ The source path can be provided as an argument or the user will be asked for it 
 **`--manifest`**: Display manifest health summary — sources, concepts, cw edges, forward notes, hub scores, isolated sources, quality distribution, repass queue depth, and graph Laplacian metrics. Shorthand for `distill_manifest.py health --manifest [path]`.
 
 **`--quality [source]`**: Show quality card for a specific source, or quality distribution table for all sources. Each card shows: concept_density, coverage_ratio, cross_ref_density, forward_note_yield, convergence_contribution, and composite_quality (harmonic mean). Use `--quality` (no source) for the full table sorted by composite quality.
+
+**`--batch <path1> <path2> ...`**: Process multiple independent sources in batch mode. Dispatches extraction via `source-extractor` agents in parallel (up to 3 concurrent, each on haiku). After all extractions complete, runs analyze and integrate sequentially per source. Each source gets its own label, distillation, and INDEX.md entry. Equivalent to choosing "Independent items (batch)" in the Multi-Source popup, but skips the popup. Example: `/distill --batch paper1.pdf paper2.pdf https://example.com/article`.

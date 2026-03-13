@@ -2,6 +2,23 @@
 
 All notable changes to buffer are documented here.
 
+## [buffer 2.5.0] - 2026-03-12
+
+### Cooldown Timer
+- **Sigma hook cooldown gate** — New `check_cooldown()` function prevents rapid re-firing when the AI cycles on idle. Uses `.sigma_last_fire` timestamp file with 30-second minimum interval between firings. Eliminates token waste from repeated no-op sigma hook invocations during inactive periods.
+- **4 new tests** for cooldown behavior (first fire, blocked within window, expired cooldown, missing marker). Total: 133 buffer tests, all passing.
+
+## [distill 2.1.0] - 2026-03-12
+
+### Agent Delegation, Slide Extraction, Batch Mode, UX Improvements
+- **Explicit agent delegation** — Extract skill now instructs the AI to dispatch the `source-extractor` agent (haiku) for PDF sources >5 pages. Reduces token cost by offloading mechanical extraction to a cheaper model.
+- **Batch distillation** — New `--batch` flag processes multiple independent sources in parallel. Dispatches up to 3 concurrent `source-extractor` agents, then runs analyze/integrate sequentially. Independent batch mode also available via Multi-Source popup.
+- **Slide extraction script** — New `distill_slides.py` extracts unique slides from lecture/presentation videos using SSIM-based frame comparison. Dependencies: opencv-python-headless (~30MB, demand-install) + yt-dlp (existing). Outputs slide PNGs + manifest JSON. Integrated into Route R (recordings) as Step R3a, with manual keyframe capture as fallback.
+- **Extractor agent sync** — Updated `agents/extractor.md` to match current pipeline: added Phase 1.7 (tool manifest), Phase 1.8 (simple PDF gate), Phase 1.9 (timeout batching), FULL STOP gate protocol, and partial-result return format for parent-agent coordination.
+- **Glossary template** — Integrate skill now includes inline glossary format template with explicit instructions for both README and project SKILL.md updates. Eliminates redundant file reads to learn the format. Maximum 5 new terms per distillation.
+- **Author folder suggestion** — After integration, if any first-author has 3+ distillations in the flat directory, offers to organize into a subdirectory. User can accept or decline (persisted via `.author_folders_declined` marker).
+- **opencv demand-install** — Added opencv-python-headless to the Demand-Install Protocol tool registry with probe support.
+
 ## [buffer 2.4.0] - 2026-03-11
 
 ### Regime Accumulator, Directional Asymmetry, CW-Boost, SWM Groundwork

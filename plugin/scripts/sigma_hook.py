@@ -51,6 +51,7 @@ import os
 import io
 import json
 import re
+import time
 
 # Force UTF-8 on Windows
 # Guard: only wrap when running as main script, not when imported by tests
@@ -65,6 +66,7 @@ if sys.platform == 'win32' and __name__ == '__main__':
 MIN_WORD_LEN = 4           # skip short words (below this = noise)
 SCORE_SUBSTRING = 1        # substring match weight (baseline)
 SUBSTRING_WEIGHT = 0.25    # IDF contribution ratio for substring vs exact matches
+COOLDOWN_SECONDS = 30      # minimum seconds between sigma hook firings
 
 # ---------------------------------------------------------------------------
 # Dynamic scalars — functions of corpus size, prompt length, or both
@@ -183,6 +185,32 @@ def read_json(path):
             return json.load(f)
     except (FileNotFoundError, json.JSONDecodeError, OSError):
         return None
+
+
+def check_cooldown(buffer_dir, cooldown_seconds=COOLDOWN_SECONDS):
+    """Return True if enough time has passed since last sigma fire.
+
+    Uses .sigma_last_fire timestamp file. Reads the stored epoch
+    timestamp from file content (not mtime) for reliable cross-platform
+    behavior. If missing or expired, updates and returns True (proceed).
+    Otherwise returns False (skip this firing).
+    """
+    marker = os.path.join(buffer_dir, '.sigma_last_fire')
+    now = time.time()
+    try:
+        with open(marker, 'r', encoding='utf-8') as f:
+            last_fire = float(f.read().strip())
+        if now - last_fire < cooldown_seconds:
+            return False
+    except (OSError, ValueError):
+        pass  # file doesn't exist or corrupt — first fire
+    # Write current timestamp
+    try:
+        with open(marker, 'w', encoding='utf-8') as f:
+            f.write(str(now))
+    except OSError:
+        pass  # non-fatal — fire anyway
+    return True
 
 
 def read_hook_input():
@@ -1327,6 +1355,10 @@ def main():
     # Find buffer
     buffer_dir = find_buffer_dir(cwd)
     if not buffer_dir:
+        emit_empty()
+
+    # GATE -1: Cooldown — prevent rapid re-firing on idle/cycling
+    if not check_cooldown(buffer_dir):
         emit_empty()
 
     # TICK COUNTER: Increment per-message counter for periodic resolution checks

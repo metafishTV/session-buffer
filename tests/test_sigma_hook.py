@@ -4,6 +4,7 @@ Covers dynamic scalars, keyword extraction, word matching, IDF weighting,
 hot/alpha matching, formatting, suppression, and source lookup.
 """
 
+import os
 import pytest
 
 from sigma_hook import (
@@ -15,6 +16,7 @@ from sigma_hook import (
     record_grid_adjustment, update_continuous_scores,
     _compute_entropy, _compute_dkl, load_regime, update_regime,
     regime_threshold_modifier, apply_cw_boost, check_ambiguity_signal,
+    check_cooldown,
     SCORE_SUBSTRING,
 )
 
@@ -1004,3 +1006,35 @@ class TestRegimeIntegration:
             regime = update_regime(buf_dir, regime, [f'concept_{i}'])
         m_diverse = regime_threshold_modifier(regime)
         assert m_diverse >= m_initial  # higher entropy = higher or equal modifier
+
+
+# ---------------------------------------------------------------------------
+# Cooldown timer
+# ---------------------------------------------------------------------------
+
+class TestCheckCooldown:
+    """check_cooldown prevents rapid re-firing."""
+
+    def test_first_fire_always_proceeds(self, tmp_path):
+        assert check_cooldown(str(tmp_path)) is True
+
+    def test_second_fire_within_cooldown_blocked(self, tmp_path):
+        buf = str(tmp_path)
+        assert check_cooldown(buf, cooldown_seconds=60) is True
+        assert check_cooldown(buf, cooldown_seconds=60) is False
+
+    def test_fire_after_cooldown_expires(self, tmp_path):
+        import time as _time
+        buf = str(tmp_path)
+        marker = os.path.join(buf, '.sigma_last_fire')
+        # Write marker with old timestamp
+        with open(marker, 'w') as f:
+            f.write(str(_time.time() - 100))
+        assert check_cooldown(buf, cooldown_seconds=30) is True
+
+    def test_missing_marker_file_proceeds(self, tmp_path):
+        buf = str(tmp_path)
+        # No marker file — should proceed
+        assert check_cooldown(buf) is True
+        # Marker now exists
+        assert os.path.exists(os.path.join(buf, '.sigma_last_fire'))
