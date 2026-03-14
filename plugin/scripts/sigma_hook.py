@@ -167,16 +167,29 @@ STOPWORDS = frozenset({
 # ---------------------------------------------------------------------------
 
 def find_buffer_dir(start_path):
-    """Walk up from start_path looking for .claude/buffer/handoff.json."""
-    current = os.path.abspath(start_path)
-    while True:
-        candidate = os.path.join(current, '.claude', 'buffer', 'handoff.json')
-        if os.path.exists(candidate):
-            return os.path.join(current, '.claude', 'buffer')
-        parent = os.path.dirname(current)
-        if parent == current:
-            return None
-        current = parent
+    """Find buffer dir via registry lookup + git-guarded walk-up.
+
+    Delegates to buffer_utils.find_buffer_dir. See buffer_utils.py for details.
+    """
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'buffer_utils', os.path.join(script_dir, 'buffer_utils.py'))
+        utils = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(utils)
+        return utils.find_buffer_dir(start_path)
+    except Exception:
+        # Fallback: original walk-up (no git guard) if buffer_utils fails
+        current = os.path.abspath(start_path)
+        while True:
+            candidate = os.path.join(current, '.claude', 'buffer', 'handoff.json')
+            if os.path.exists(candidate):
+                return os.path.join(current, '.claude', 'buffer')
+            parent = os.path.dirname(current)
+            if parent == current:
+                return None
+            current = parent
 
 
 def read_json(path):
