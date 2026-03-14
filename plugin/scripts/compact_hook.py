@@ -105,6 +105,7 @@ def generate_directive_context(buffer_dir):
         sections[current_section] = '\n'.join(current_lines).strip()
 
     # Read session depth from .session_active
+    # off_count = number of /buffer:off save cycles this session, used as depth proxy
     depth = 0
     session_active_path = os.path.join(buffer_dir, '.session_active')
     try:
@@ -114,7 +115,9 @@ def generate_directive_context(buffer_dir):
     except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError, TypeError):
         depth = 0
 
-    # Build output
+    # Build output — only renders On Disk, Active Threads, Session Vocabulary,
+    # and Session Depth. "Already Persisted" stays in the directives file for
+    # human reference but is not injected (redundant with On Disk paths).
     lines = []
     lines.append('--- COMPACTION DIRECTIVES ---')
     lines.append('')
@@ -605,7 +608,6 @@ def build_compact_summary(hot, buffer_dir, hot_max, warm_max, cold_max):
     directive_context = generate_directive_context(buffer_dir)
     if directive_context:
         lines.append(directive_context)
-        lines.append('')
 
     # --- Consistency check directive ---
     lines.append("=" * 40)
