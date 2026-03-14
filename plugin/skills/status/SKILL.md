@@ -20,6 +20,16 @@ Check existence of:
 - `.claude/buffer/.compact_marker` — compaction occurred, context was reset
 - `.claude/buffer/.buffer_loaded` — sigma hook active
 
+## Step 2b: Check compaction directives
+
+Read `.claude/buffer/compact-directives.md` if it exists.
+- If missing: note "Directives: not configured"
+- If present: count on-disk files listed, active threads listed, and vocabulary terms listed. Note "Directives: active"
+
+Check if CLAUDE.md contains a `## Compaction Guidance` section.
+- If missing: note "CLAUDE.md compaction section: not present"
+- If present: note "CLAUDE.md compaction section: active"
+
 ## Step 3: Assess context health
 
 Based on your own context awareness, estimate:
@@ -43,6 +53,8 @@ Session depth: [off_count saves this session]
 
 Context:   [~X% used] [green/caution/critical]
 Markers:   [distill active | compacted | none]
+Directives: [active (N files, M threads, K vocab) | not configured]
+CLAUDE.md:  [compaction section active | not present]
 
 Recommendation: [based on context % and session depth]
 ```
