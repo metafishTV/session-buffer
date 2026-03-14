@@ -121,3 +121,25 @@ def full_args(full_buffer_dir):
         warm_max=None,
         cold_max=None,
     )
+
+
+@pytest.fixture
+def buffer_dir_with_directives(buffer_dir):
+    """Buffer directory with a compact-directives.md file."""
+    directives = buffer_dir / 'compact-directives.md'
+    directives.write_text(
+        "# Compaction Directives\n\n"
+        "## On Disk\n"
+        "- Sigma trunk: .claude/buffer/handoff.json\n"
+        "- Alpha bin: .claude/buffer/alpha/\n\n"
+        "## Active Threads\n"
+        "- Layer 1 implementation (compact_hook.py)\n"
+        "- PostCompact hook wiring (hooks.json)\n\n"
+        "## Already Persisted\n"
+        "- Session state saved in handoff.json\n\n"
+        "## Session Vocabulary\n"
+        "- placenta: living connective tissue between plugin and LLM\n"
+        "- headroom: remaining context capacity before compaction\n",
+        encoding='utf-8'
+    )
+    return buffer_dir

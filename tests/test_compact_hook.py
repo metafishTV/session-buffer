@@ -5,10 +5,13 @@ import os
 
 import pytest
 
+from pathlib import Path
+
 from compact_hook import (
     build_compact_summary,
     detect_layer_limits,
     find_buffer_dir,
+    generate_directive_context,
     read_json,
     write_json,
 )
@@ -183,3 +186,107 @@ class TestPreCompactMarker:
         content = marker.read_text().strip()
         # Verify it is a valid ISO date string matching today
         assert content == dt_date.today().isoformat()
+
+
+# ---------------------------------------------------------------------------
+# generate_directive_context
+# ---------------------------------------------------------------------------
+
+class TestGenerateDirectiveContext:
+    """Tests for generate_directive_context()."""
+
+    def test_no_directives_file_returns_empty(self, buffer_dir):
+        """No compact-directives.md -> returns empty string."""
+        result = generate_directive_context(str(buffer_dir))
+        assert result == ''
+
+    def test_with_directives_file_includes_sections(self, buffer_dir_with_directives):
+        """Directives file present -> output includes all sections."""
+        result = generate_directive_context(str(buffer_dir_with_directives))
+        assert 'COMPACTION DIRECTIVES' in result
+        assert 'CONTEXT ON DISK' in result
+        assert 'handoff.json' in result
+        assert 'ACTIVE THREADS' in result
+        assert 'Layer 1 implementation' in result
+        assert 'SESSION VOCABULARY' in result
+        assert 'placenta' in result
+
+    def test_session_depth_zero(self, buffer_dir_with_directives):
+        """No .session_active -> depth 0, full detail guidance."""
+        result = generate_directive_context(str(buffer_dir_with_directives))
+        assert 'SESSION DEPTH: 0' in result
+        assert 'Full thread detail' in result
+
+    def test_session_depth_two(self, buffer_dir_with_directives):
+        """off_count=2 -> deep session guidance."""
+        marker = Path(buffer_dir_with_directives) / '.session_active'
+        marker.write_text(
+            json.dumps({"date": "2026-03-14", "off_count": 2}),
+            encoding='utf-8'
+        )
+        result = generate_directive_context(str(buffer_dir_with_directives))
+        assert 'SESSION DEPTH: 2' in result
+        assert 'deep session' in result
+
+    def test_depth_from_session_active(self, buffer_dir_with_directives):
+        """Write .session_active with off_count=3 -> critical depth guidance."""
+        marker = Path(buffer_dir_with_directives) / '.session_active'
+        marker.write_text(
+            json.dumps({"date": "2026-03-14", "off_count": 3}),
+            encoding='utf-8'
+        )
+        result = generate_directive_context(str(buffer_dir_with_directives))
+        assert 'SESSION DEPTH: 3' in result
+        assert 'Significant context recycling' in result
+
+    def test_malformed_session_active_treated_as_zero(self, buffer_dir_with_directives):
+        """Malformed .session_active JSON -> depth treated as 0."""
+        marker = Path(buffer_dir_with_directives) / '.session_active'
+        marker.write_text('not json at all', encoding='utf-8')
+        result = generate_directive_context(str(buffer_dir_with_directives))
+        assert 'SESSION DEPTH: 0' in result
+
+    def test_empty_directives_file_returns_empty(self, buffer_dir):
+        """Empty compact-directives.md -> returns empty string."""
+        directives = Path(str(buffer_dir)) / 'compact-directives.md'
+        directives.write_text('', encoding='utf-8')
+        result = generate_directive_context(str(buffer_dir))
+        assert result == ''
+
+    def test_directives_without_vocabulary_section(self, buffer_dir):
+        """Directives file with no Session Vocabulary -> no vocabulary block."""
+        directives = Path(str(buffer_dir)) / 'compact-directives.md'
+        directives.write_text(
+            "# Compaction Directives\n\n"
+            "## On Disk\n"
+            "- Sigma trunk: .claude/buffer/handoff.json\n\n"
+            "## Active Threads\n"
+            "- Working on tests\n",
+            encoding='utf-8'
+        )
+        result = generate_directive_context(str(buffer_dir))
+        assert 'COMPACTION DIRECTIVES' in result
+        assert 'SESSION VOCABULARY' not in result
+
+
+# ---------------------------------------------------------------------------
+# build_compact_summary with directives
+# ---------------------------------------------------------------------------
+
+class TestBuildCompactSummaryWithDirectives:
+    """Tests that build_compact_summary includes directive context when available."""
+
+    def test_summary_includes_directives(self, buffer_dir_with_directives, hot_minimal):
+        """build_compact_summary appends directive context when directives file exists."""
+        result = build_compact_summary(
+            hot_minimal, str(buffer_dir_with_directives), 200, 500, 500
+        )
+        assert 'COMPACTION DIRECTIVES' in result
+        assert 'POST-COMPACTION SIGMA TRUNK RECOVERY' in result
+        assert 'placenta' in result
+
+    def test_summary_without_directives_unchanged(self, buffer_dir, hot_minimal):
+        """build_compact_summary without directives file -> no directive block."""
+        result = build_compact_summary(hot_minimal, str(buffer_dir), 200, 500, 500)
+        assert 'COMPACTION DIRECTIVES' not in result
+        assert 'POST-COMPACTION SIGMA TRUNK RECOVERY' in result

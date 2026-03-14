@@ -27,6 +27,15 @@
         }]
       }
     ],
+    "PostCompact": [
+      {
+        "hooks": [{
+          "type": "command",
+          "command": "\"${CLAUDE_PLUGIN_ROOT}/scripts/run_python\" \"${CLAUDE_PLUGIN_ROOT}/scripts/compact_hook.py\" post-compact",
+          "timeout": 30
+        }]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "matcher": "*",

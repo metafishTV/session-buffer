@@ -69,6 +69,113 @@ def read_hook_input():
     return {}
 
 
+def generate_directive_context(buffer_dir):
+    """Generate compaction directive context from compact-directives.md and session depth.
+
+    Returns a formatted string to append to the post-compaction injection.
+    Returns empty string if no directives file exists or it's empty.
+    """
+    directives_path = os.path.join(buffer_dir, 'compact-directives.md')
+
+    # Read directives file
+    try:
+        with open(directives_path, 'r', encoding='utf-8') as f:
+            directives_text = f.read().strip()
+    except (FileNotFoundError, OSError):
+        return ''
+
+    if not directives_text:
+        return ''
+
+    # Parse sections from the markdown
+    sections = {}
+    current_section = None
+    current_lines = []
+
+    for line in directives_text.split('\n'):
+        if line.startswith('## '):
+            if current_section:
+                sections[current_section] = '\n'.join(current_lines).strip()
+            current_section = line[3:].strip()
+            current_lines = []
+        elif current_section:
+            current_lines.append(line)
+
+    if current_section:
+        sections[current_section] = '\n'.join(current_lines).strip()
+
+    # Read session depth from .session_active
+    depth = 0
+    session_active_path = os.path.join(buffer_dir, '.session_active')
+    try:
+        with open(session_active_path, 'r', encoding='utf-8') as f:
+            session_data = json.load(f)
+            depth = int(session_data.get('off_count', 0))
+    except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError, TypeError):
+        depth = 0
+
+    # Build output
+    lines = []
+    lines.append('--- COMPACTION DIRECTIVES ---')
+    lines.append('')
+
+    # On Disk section
+    on_disk = sections.get('On Disk', '')
+    if on_disk:
+        lines.append('CONTEXT ON DISK (recoverable via tools):')
+        for item in on_disk.split('\n'):
+            item = item.strip()
+            if item.startswith('- '):
+                lines.append(item)
+        lines.append('')
+
+    # Active Threads section
+    threads = sections.get('Active Threads', '')
+    if threads:
+        lines.append('ACTIVE THREADS:')
+        for item in threads.split('\n'):
+            item = item.strip()
+            if item.startswith('- '):
+                lines.append(item)
+        lines.append('')
+
+    # Session Vocabulary section
+    vocab = sections.get('Session Vocabulary', '')
+    if vocab and vocab.strip():
+        lines.append('SESSION VOCABULARY:')
+        for item in vocab.split('\n'):
+            item = item.strip()
+            if item.startswith('- '):
+                lines.append(item)
+        lines.append('')
+
+    # Session depth and adaptive guidance
+    lines.append(f'SESSION DEPTH: {depth} save cycles.')
+    if depth <= 1:
+        lines.append(
+            'Full thread detail and rationale should be available '
+            'in the compaction summary above.'
+        )
+    elif depth == 2:
+        lines.append(
+            'This is a deep session. Prioritize continuity and active focus. '
+            'Details are in git and the buffer trunk.'
+        )
+    else:
+        lines.append(
+            'Significant context recycling. Focus on: what we are doing, why, '
+            'and the next step. All detail is on disk.'
+        )
+    lines.append('')
+
+    lines.append(
+        'The buffer plugin has re-injected essential context above. '
+        'Use /buffer:on if you need full trunk reconstruction.'
+    )
+
+    return '\n'.join(lines)
+
+
 def detect_layer_limits(cwd):
     """Check project configs for hot-max, warm-max, cold-max overrides.
 
@@ -493,6 +600,12 @@ def build_compact_summary(hot, buffer_dir, hot_max, warm_max, cold_max):
         lines.append("file, confirm the source label with the user, then continue the")
         lines.append("pipeline from where it was interrupted.")
         lines.append("")
+
+    # --- Compaction directives ---
+    directive_context = generate_directive_context(buffer_dir)
+    if directive_context:
+        lines.append(directive_context)
+        lines.append('')
 
     # --- Consistency check directive ---
     lines.append("=" * 40)
