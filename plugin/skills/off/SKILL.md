@@ -341,12 +341,18 @@ If already registered, update `last_handoff` to today's date. Write back.
 
 The project name comes from the hot layer's `project_name` field (if present) or is inferred from the repo directory name.
 
-### Step 13: Clean up session markers
+### Step 13: Update session markers
 
-Remove the sigma hook session marker (created by `/buffer:on`):
+Remove the sigma hook marker:
 ```bash
 rm -f .claude/buffer/.buffer_loaded
 ```
+
+Update `.claude/buffer/.session_active` — read the current JSON, increment `off_count` by 1, and write back:
+```json
+{"date": "YYYY-MM-DD", "off_count": N+1}
+```
+This tracks how many times the buffer has been saved this session. The statusline displays `buf:off×N` so the user can see session depth at a glance. At `off×3+`, consider suggesting a fresh session — context nuance erodes with each cycle.
 
 ### Step 14: Commit
 

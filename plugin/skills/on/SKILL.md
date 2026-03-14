@@ -192,6 +192,15 @@ After registering the project, configure how MEMORY.md and the sigma trunk coexi
 
 Run these steps when a sigma trunk was found (Steps 0a-0c succeeded).
 
+### Step 0d: Mark session active
+
+Read `.claude/buffer/.session_active` if it exists. It's a JSON file: `{"date": "YYYY-MM-DD", "off_count": N}`.
+
+- If it **doesn't exist** or the `date` is **not today**: write `{"date": "[today]", "off_count": 0}` — fresh session.
+- If it **exists** and the `date` **is today**: keep the existing `off_count` — this is a continuation of the same session (e.g., after a reload or compaction recovery).
+
+This marker tells the statusline (and other tools) that the buffer is loaded and active. The `off_count` tracks how many times `/buffer:off` has been run this session — a signal of session depth and context recycling.
+
 ### Step 1: Read hot layer only
 
 Read `.claude/buffer/handoff.json` (~200 lines). This is the only mandatory read at startup.
