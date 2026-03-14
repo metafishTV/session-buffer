@@ -341,6 +341,25 @@ If already registered, update `last_handoff` to today's date. Write back.
 
 The project name comes from the hot layer's `project_name` field (if present) or is inferred from the repo directory name.
 
+### Step 12b: Update compaction directives
+
+Update `.claude/buffer/compact-directives.md`:
+
+1. **Active Threads** — refresh to match what you just saved in
+   handoff.json open_threads.
+
+2. **Already Persisted** — update to reflect everything saved in this
+   /buffer:off cycle.
+
+3. **Session Vocabulary** — review each term:
+   - If it belongs in the project long-term, migrate it to the appropriate
+     trunk layer (concept_map in alpha, or a warm entry definition).
+   - If it was session-specific and already captured in the natural
+     summary, leave it — it will be overwritten next /buffer:on.
+   - If it's neither, remove it.
+
+The file stays on disk for reference. Next /buffer:on overwrites it.
+
 ### Step 13: Update session markers
 
 Remove the sigma hook marker:
