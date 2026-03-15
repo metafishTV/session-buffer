@@ -391,6 +391,12 @@ Update `.claude/buffer/.session_active` — read the current JSON, increment `of
 ```
 This tracks how many times the buffer has been saved this session. The statusline displays `buf:off×N` so the user can see session depth at a glance. At `off×3+`, consider suggesting a fresh session — context nuance erodes with each cycle.
 
+Emit session-end telemetry summary:
+```bash
+python plugin/scripts/telemetry.py session-end --buffer-dir .claude/buffer/
+```
+This logs a session summary (compaction count, warnings, peak context %) to `telemetry.jsonl`. Fail-silent — if it errors, proceed to Step 14.
+
 ### Step 14: Commit
 
 ```bash
