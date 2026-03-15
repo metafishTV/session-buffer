@@ -314,6 +314,8 @@ This closes the anapressive-anopressive loop: conservation pushes entries down b
 
 Write `handoff.json`, `handoff-warm.json`, and `handoff-cold.json` to `.claude/buffer/`.
 
+**How to write**: Use the `handoff` command (preferred) or write files directly with the Write tool. Do NOT call `buffer_manager.py warm-write` or `buffer_manager.py cold-write` — those subcommands do not exist. The valid commands are: `read`, `update`, `migrate`, `validate`, `sync`, `next-id`, `handoff`, `archive`, and the `alpha-*` / `beta-*` families.
+
 **Before writing hot layer**: Check all fields against the Hot Layer Size Constraints (defined in SKILL.md). Compress any fields that exceed their limits — do not silently drop content. Use the warm concept_map as a glossary for compression.
 
 **Project README**: If `.claude/README.md` does not exist (first handoff for this project), generate it now. This is user-facing documentation describing:
