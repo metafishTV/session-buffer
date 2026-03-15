@@ -51,6 +51,9 @@ def main():
     except Exception:
         data = {}
 
+    # Context pressure (headroom check)
+    used_pct = data.get('used_percentage')
+
     cwd = data.get("cwd") or data.get("workspace", {}).get("current_dir") or os.getcwd()
     # Normalise Windows backslashes.
     cwd = cwd.replace("\\", "/")
@@ -106,6 +109,20 @@ def main():
     branch = get_git_branch(cwd)
     if branch:
         parts.append(branch)
+
+    # Context pressure indicator (after all other segments)
+    if used_pct is not None:
+        try:
+            pct = float(used_pct)
+            pct_int = int(pct)
+            if pct >= 93:
+                parts.append(f"ctx:{pct_int}%!!")
+            elif pct >= 85:
+                parts.append(f"ctx:{pct_int}%!")
+            elif pct >= 70:
+                parts.append(f"ctx:{pct_int}%")
+        except (ValueError, TypeError):
+            pass
 
     print(" | ".join(parts))
 
