@@ -174,7 +174,7 @@ Lives in `plugin/scripts/`. Imports `buffer_utils` for buffer path discovery.
 
 | Subcommand | Args | Behavior |
 |------------|------|----------|
-| `status` | — | Detects session type (planner/worker) and football state. Returns `{session_type, football_state, throw_type}`. Planner = trunk hot layer present; worker = `football-micro.json` present. Edge case: if both present, warns and returns `ambiguous`. |
+| `status` | — | Detects session type (planner/worker) and football state. Returns `{session_type, football_state, throw_type}`. Planner = trunk hot layer present; worker = `football-micro.json` present. Edge case: if both present, returns `ambiguous` — skill presents `AskUserQuestion`: "Both trunk and football-micro detected. Are you the planner or the worker?" If planner, offers to absorb the stale micro-hot-layer. |
 | `pack` | `--side planner\|worker --type heavy\|lite` | Writes or updates `football.json`. Heavy planner pack pulls from trunk hot layer; heavy worker pack pulls from micro-hot-layer. |
 | `unpack` | `--football football.json` | Reads football, returns structured output for skill to present. |
 | `flag` | `--type <type> --content <json> --rationale <str>` | Appends typed item to `football-micro.json` `flagged_for_trunk`. Can be called anytime during worker session. |
@@ -192,7 +192,9 @@ Lives in `plugin/scripts/`. Imports `buffer_utils` for buffer path discovery.
 ## Integration Points
 
 - **Trunk hot layer:** Gains optional field `football_in_flight: true|false`. Soft guard — informational only, no hook blocks.
+- **`/buffer:on` guard:** If `football_in_flight: true` on the trunk hot layer, surface after the Step 8 confirmation line: "Note: a football is in flight (thrown [thrown_at date]). Run `/buffer:catch` when the worker returns." Informational only.
 - **`/buffer:off` guard:** If planner runs `/buffer:off` while `football_in_flight: true`, the skill warns before proceeding: "A football is in flight. Consider catching it before saving to avoid losing the worker's output." Does not block.
+- **Stale football detection:** On planner `/buffer:catch`, if `football.json` state is `caught` (worker took it but never returned) and `thrown_at` is 3+ days old, surface: "A football was caught on [date] but never returned. Absorb the worker's partial progress from `football-micro.json`?" Soft guard — the planner can absorb partial micro-hot-layer contents or dismiss. 3 days reflects the tight-delegation-loop intent; footballs are scoped tasks, not long-running work.
 - **`buffer_utils.py`:** `buffer_football.py` imports it for buffer path discovery. No changes needed to `buffer_utils`.
 - **`schemas/`:** One new schema file (`football.schema.json`). `schemas/hot-layer.schema.json` requires two modifications: (a) add optional `football_in_flight` boolean to top-level properties; (b) add `dialogue_style` string to `instance_notes.properties` (field was added in v3.1.0 but not yet reflected in the schema).
 
@@ -210,7 +212,9 @@ Lives in `plugin/scripts/`. Imports `buffer_utils` for buffer path discovery.
 | `test_pack_lite_worker` | Lite worker return includes only output fields |
 | `test_status_detects_planner` | Trunk hot layer present → planner |
 | `test_status_detects_worker` | Micro-hot-layer present → worker |
-| `test_status_ambiguous` | Both present → warns, returns ambiguous |
+| `test_status_ambiguous` | Both present → returns ambiguous, skill disambiguates |
+| `test_stale_football_detection` | `caught` state + 3+ days old → surfaces absorption prompt |
+| `test_stale_football_fresh` | `caught` state + <3 days → no warning |
 | `test_flag_appends_to_micro` | Flag command appends typed item correctly |
 | `test_flag_async` | Flag mid-session, not just at throw time |
 | `test_validate_passes_valid` | Valid football → no error |
@@ -230,13 +234,20 @@ Lives in `plugin/scripts/`. Imports `buffer_utils` for buffer path discovery.
 | `plugin/skills/catch/SKILL.md` | CREATE | 80 |
 | `plugin/scripts/buffer_football.py` | CREATE | 150 |
 | `schemas/football.schema.json` | CREATE | 60 |
-| `tests/test_buffer_football.py` | CREATE | 120 |
+| `tests/test_buffer_football.py` | CREATE | 140 |
 | `plugin/.claude-plugin/plugin.json` | MODIFY — 3.1.0 → 3.2.0 | 1 |
+| `plugin/skills/on/SKILL.md` | MODIFY — add football_in_flight notice after Step 8 confirm | +3 |
 | `plugin/skills/off/SKILL.md` | MODIFY — add football_in_flight guard | +5 |
 | `schemas/hot-layer.schema.json` | MODIFY — add `football_in_flight` + `dialogue_style` to instance_notes | +5 |
 | `CHANGELOG.md` | MODIFY — add 3.2.0 entry | +10 |
 
 ---
+
+## Resolved Questions
+
+- **Ambiguous session detection:** When both trunk hot layer and `football-micro.json` are present, the skill asks via `AskUserQuestion` rather than blocking. If planner is selected, offers stale micro-hot-layer absorption.
+- **Stale football threshold:** 3 days. Footballs are scoped tasks — if unreturned in 3 days, the worker likely forgot or abandoned. Soft warning, not deletion.
+- **`/buffer:on` awareness:** Planner starting a new session is informed if a football is in flight. Informational only.
 
 ## Open Questions
 
