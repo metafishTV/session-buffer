@@ -51,8 +51,11 @@ def cmd_status(args):
     football_state = throw_type = None
     stale = False
     if fp.exists():
-        with open(fp) as f:
-            data = json.load(f)
+        try:
+            with open(fp) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            data = {}
         football_state = data.get("state")
         throw_type = data.get("throw_type")
         if football_state == "caught":
@@ -100,8 +103,12 @@ def cmd_archive(args):
     if not fp.exists():
         print(json.dumps({"error": f"not found: {fp}"}))
         sys.exit(1)
-    with open(fp) as f:
-        data = json.load(f)
+    try:
+        with open(fp) as f:
+            data = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        print(json.dumps({"error": f"corrupt football file: {fp}"}))
+        sys.exit(1)
     data["state"] = "absorbed"
     desc = data.get("planner_payload", {}).get("thread", {}).get("description", "football")
     date = data.get("thrown_at", datetime.now().strftime("%Y-%m-%d"))
@@ -117,16 +124,22 @@ def cmd_archive(args):
 def _pack_planner(args, bd, fp, throw_count, today):
     existing = {}
     if fp.exists():
-        with open(fp) as f:
-            existing = json.load(f)
+        try:
+            with open(fp) as f:
+                existing = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            existing = {}
     thread = json.loads(args.thread) if args.thread else {}
     payload = {"thread": thread}
     if args.type == "heavy":
         context = {"relevant_decisions": [], "alpha_refs": [], "orientation_fragment": "", "dialogue_style": ""}
         hot = _hot(bd)
         if hot.exists():
-            with open(hot) as f:
-                trunk = json.load(f)
+            try:
+                with open(hot) as f:
+                    trunk = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                trunk = {}
             o = trunk.get("orientation", {})
             frags = [o.get("core_insight", ""), o.get("practical_warning", "")]
             context["orientation_fragment"] = " ".join(f for f in frags if f)
@@ -149,12 +162,18 @@ def _pack_worker(args, bd, fp, throw_count, today):
     micro = {}
     micro_path = _micro(bd)
     if micro_path.exists():
-        with open(micro_path) as f:
-            micro = json.load(f)
+        try:
+            with open(micro_path) as f:
+                micro = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            micro = {}
     existing = {}
     if fp.exists():
-        with open(fp) as f:
-            existing = json.load(f)
+        try:
+            with open(fp) as f:
+                existing = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            existing = {}
     if args.type == "heavy":
         worker_output = {
             "completed": micro.get("completed_tasks", []),
@@ -184,8 +203,12 @@ def cmd_unpack(args):
     if not fp.exists():
         print(json.dumps({"error": f"not found: {fp}"}))
         sys.exit(1)
-    with open(fp) as f:
-        print(json.dumps(json.load(f), indent=2))
+    try:
+        with open(fp) as f:
+            print(json.dumps(json.load(f), indent=2))
+    except (json.JSONDecodeError, OSError) as e:
+        print(json.dumps({"error": f"corrupt football file: {e}"}))
+        sys.exit(1)
 
 
 def cmd_flag(args):
@@ -193,8 +216,11 @@ def cmd_flag(args):
     micro_path = _micro(bd)
     micro = {}
     if micro_path.exists():
-        with open(micro_path) as f:
-            micro = json.load(f)
+        try:
+            with open(micro_path) as f:
+                micro = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            micro = {}
     micro.setdefault("flagged_for_trunk", []).append({
         "type": args.type_flag,
         "content": json.loads(args.content),
@@ -210,8 +236,11 @@ def cmd_pack(args):
     fp = _football(bd)
     existing_count = 0
     if fp.exists():
-        with open(fp) as f:
-            existing_count = json.load(f).get("throw_count", 0)
+        try:
+            with open(fp) as f:
+                existing_count = json.load(f).get("throw_count", 0)
+        except (json.JSONDecodeError, OSError):
+            existing_count = 0
     throw_count = existing_count + 1
     today = datetime.now().strftime("%Y-%m-%d")
     if args.side == "planner":

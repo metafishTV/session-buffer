@@ -668,7 +668,7 @@ def build_compact_summary(hot, buffer_dir, hot_max, warm_max, cold_max):
             lines.append(f"Figures extracted: {distill_state['figures_extracted']}")
         if 'recent_distillations' in distill_state:
             for rd in distill_state['recent_distillations']:
-                lines.append(f"Recently modified: {rd['file']} ({rd['seconds_ago']}s ago)")
+                lines.append(f"Recently modified: {rd.get('file', '?')} ({rd.get('seconds_ago', '?')}s ago)")
         if distill_state.get('has_project_skill'):
             lines.append("Project distill skill: exists")
         lines.append("")

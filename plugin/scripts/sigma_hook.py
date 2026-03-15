@@ -1564,6 +1564,7 @@ def main():
         sources_data = {}
         idf_weights = {}
         threshold = 0.0
+        max_inject = dynamic_max_inject(len(user_prompt.split()))
         regime = None
         adj_data = None
 
