@@ -737,15 +737,16 @@ def try_grid_lookup(buffer_dir, keywords):
     # Format: "sigma grid: w:62 alterity (Levinas) | w:73 rhizomatic (DG)"
     parts = []
     for c in concepts[:5]:
+        cid = c.get('id', '?')
         concept_name = c.get('concept', '?')
         if ':' in concept_name:
             source_prefix, name = concept_name.split(':', 1)
         else:
             source_prefix, name = '?', concept_name
         name_clean = name.replace('_', ' ')
-        parts.append(f"{c['id']} {name_clean} ({source_prefix})")
+        parts.append(f"{cid} {name_clean} ({source_prefix})")
 
-    concept_ids = [c['id'] for c in concepts[:5]]
+    concept_ids = [c.get('id', '?') for c in concepts[:5]]
     injection = f"sigma grid [{best_cell}]: {' | '.join(parts)}"
     return injection, concept_ids
 
