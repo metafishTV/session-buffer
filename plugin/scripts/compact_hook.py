@@ -282,6 +282,67 @@ def cmd_pre_compact(hook_input):
 
     # Save hot layer
     write_json(hot_path, hot)
+
+    # Emit telemetry event (Layer 3 — fail-silent)
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        import importlib.util
+        _tel_spec = importlib.util.spec_from_file_location(
+            'telemetry', os.path.join(script_dir, 'telemetry.py'))
+        _tel_mod = importlib.util.module_from_spec(_tel_spec)
+        _tel_spec.loader.exec_module(_tel_mod)
+
+        # Read context pressure from hook input
+        used_pct = hook_input.get('used_percentage')
+        context_pct = int(float(used_pct)) if used_pct is not None else None
+
+        # Compute cache ratio
+        cr = None
+        cache_read = hook_input.get('cache_read_input_tokens')
+        cache_creation = hook_input.get('cache_creation_input_tokens')
+        input_tok = hook_input.get('input_tokens')
+        if cache_read is not None and cache_creation is not None and input_tok is not None:
+            cr = round(_tel_mod.cache_ratio(
+                float(cache_read), float(cache_creation), float(input_tok)), 2)
+
+        # Read session depth
+        off_count = 0
+        session_active_path = os.path.join(buffer_dir, '.session_active')
+        try:
+            with open(session_active_path, 'r', encoding='utf-8') as f:
+                sa = json.load(f)
+                off_count = int(sa.get('off_count', 0))
+        except (FileNotFoundError, json.JSONDecodeError, OSError, ValueError):
+            pass
+
+        # Count open threads
+        threads = hot.get('open_threads', [])
+        thread_count = len(threads) if isinstance(threads, list) else 0
+
+        # Read headroom tier
+        headroom_tier = None
+        tier_path = os.path.join(buffer_dir, '.sigma_headroom_tier')
+        try:
+            with open(tier_path, 'r', encoding='utf-8') as f:
+                headroom_tier = f.read().strip() or None
+        except (FileNotFoundError, OSError):
+            pass
+
+        event = {
+            'event': 'compact',
+            'threads': thread_count,
+            'off_count': off_count,
+            'headroom_tier': headroom_tier,
+        }
+        if context_pct is not None:
+            event['context_pct'] = context_pct
+        if cr is not None:
+            event['cache_ratio'] = cr
+
+        _tel_mod.emit(buffer_dir, event)
+    except Exception:
+        pass  # Fail-silent: telemetry must never block compaction
+
     sys.exit(0)  # Allow compaction
 
 
