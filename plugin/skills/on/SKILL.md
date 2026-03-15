@@ -416,12 +416,14 @@ Compute the gap between today and `session_meta.date` from the hot layer.
 Tell the user:
 
 ```
-buffer v3.1.0 | [scope] mode | Alpha: N referents (if present) | W: [ratio]
+buffer v3.2.0 | [scope] mode | Alpha: N referents (if present) | W: [ratio]
 Context reconstructed from [date] handoff ([N days ago]). Ready to continue from [current_phase].
 Autosave armed — sigma trunk will stay current throughout the session.
 ```
 
 If the handoff is >7 days old, add: "Note: trunk is [N] days stale — git state may have diverged significantly."
+
+If `football_in_flight` is `true` in the hot layer, add after the confirmation line: "Note: a football is in flight (thrown [thrown_at date]). Run `/buffer:catch` when the worker returns."
 
 Write the sigma hook session marker so the hook skips redundant hot-layer hints (the AI already has the full hot layer loaded):
 ```bash

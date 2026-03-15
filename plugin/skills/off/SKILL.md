@@ -132,6 +132,19 @@ Before doing anything else:
 
 ## Process
 
+### Step 0b: Check for in-flight football
+
+Read `.claude/buffer/handoff.json`. If `football_in_flight == true`:
+
+> "⚠️ A football is currently in flight to a worker session. Saving now means the worker's return throw will need to be caught in a new planner session.
+>
+> 1. Wait — catch the worker's return (/buffer:catch) before saving
+> 2. Save anyway (football.json remains for manual recovery)
+>
+> Save anyway? (yes/no)"
+
+If no → STOP. If yes → continue (football NOT auto-archived).
+
 ### Step 1: Read existing hot layer
 
 Read `.claude/buffer/handoff.json` to understand the current state.

@@ -2,6 +2,17 @@
 
 All notable changes to buffer are documented here.
 
+## [buffer 3.2.0] - 2026-03-14
+
+### buffer:football — Cross-Session Task Delegation
+- **`/buffer:throw`** — dyadic skill: planner packs football (heavy = full context + dialogue style, lite = task only); worker returns results (lite = output diff, heavy = full micro-hot-layer).
+- **`/buffer:catch`** — dyadic skill: worker initializes micro-session (adopts `dialogue_style` silently from first response); planner absorbs results, reviews flagged items, digests into trunk.
+- **`buffer_football.py`** — script backing both skills: `status` (session detection), `pack`, `unpack`, `validate`, `flag`, `archive`. Importlib-based buffer_utils integration.
+- **`schemas/football.schema.json`** — new schema for football envelope (heavy/lite, planner/worker payloads, flagged_for_trunk items).
+- **`schemas/hot-layer.schema.json`** — adds optional `football_in_flight` boolean and `dialogue_style` to `instance_notes.properties`.
+- **`/buffer:off` guard** — warns when a football is in flight before saving trunk.
+- **18 new tests**, all passing.
+
 ## [buffer 3.1.0] - 2026-03-14
 
 ### Dialogue Continuity + Compaction Directives
