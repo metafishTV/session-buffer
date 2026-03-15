@@ -121,6 +121,8 @@ The worker maintains a lightweight accumulator at `.claude/buffer/football-micro
 }
 ```
 
+`catch_count` increments on each `unpack` call from the worker side (i.e., each time the worker runs `/buffer:catch`). `throw_count` increments on each worker `pack` call.
+
 `flagged_for_trunk` in the micro-hot-layer accumulates items added via `buffer_football.py flag` at any point during the worker session — not only at throw time. Workers should flag items as they discover them.
 
 ---
@@ -179,7 +181,7 @@ Lives in `plugin/scripts/`. Imports `buffer_utils` for buffer path discovery.
 | `unpack` | `--football football.json` | Reads football, returns structured output for skill to present. |
 | `flag` | `--type <type> --content <json> --rationale <str>` | Appends typed item to `football-micro.json` `flagged_for_trunk`. Can be called anytime during worker session. |
 | `validate` | `--football football.json` | Validates against `schemas/football.schema.json`. Called before every throw and catch. |
-| `archive` | `--football football.json` | Moves to `footballs/YYYY-MM-DD-{thread-slug}.json`. Thread slug = first 5 words of `thread.description`, hyphenated, lowercased. If fewer than 5 words, use all available words. |
+| `archive` | `--football football.json` | Moves to `footballs/YYYY-MM-DD-{thread-slug}.json`. Thread slug = first 5 words of `thread.description`, hyphenated, lowercased, non-alphanumeric characters stripped. If fewer than 5 words, use all available words. |
 
 ---
 
@@ -248,8 +250,8 @@ Lives in `plugin/scripts/`. Imports `buffer_utils` for buffer path discovery.
 - **Ambiguous session detection:** When both trunk hot layer and `football-micro.json` are present, the skill asks via `AskUserQuestion` rather than blocking. If planner is selected, offers stale micro-hot-layer absorption.
 - **Stale football threshold:** 3 days. Footballs are scoped tasks — if unreturned in 3 days, the worker likely forgot or abandoned. Soft warning, not deletion.
 - **`/buffer:on` awareness:** Planner starting a new session is informed if a football is in flight. Informational only.
+- **Worker async flagging vs. unsolicited throw:** Workers cannot throw without a prior planner catch — throws and catches alternate strictly. The async channel for urgent mid-task discoveries is `buffer_football.py flag`, which writes to the micro-hot-layer immediately without requiring a throw/catch cycle.
 
 ## Open Questions
 
-- Should the worker be able to initiate a throw *without* a prior planner catch (e.g., to flag something urgent mid-task)? Current design says no — throws and catches alternate. Flagging via `buffer_football.py flag` is the async channel instead.
 - Future: multiple simultaneous footballs (e.g., parallel worker sessions). Would require `footballs/{id}.json` rather than a single `football.json`. Deferred — single active football is the right starting constraint.
