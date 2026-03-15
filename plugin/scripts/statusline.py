@@ -48,6 +48,8 @@ def main():
     raw = sys.stdin.read()
     try:
         data = json.loads(raw)
+        if not isinstance(data, dict):
+            data = {}
     except Exception:
         data = {}
 
