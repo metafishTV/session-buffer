@@ -226,3 +226,75 @@ def test_pack_lite_worker_takes_args(worker_buffer_dir, valid_football, capsys):
     data = json.loads(valid_football.read_text())
     assert data["worker_output"]["completed"] == ["Wrote foo.py"]
     assert data["worker_output"]["next_action"] == "Run full suite"
+
+
+# ── unpack ────────────────────────────────────────────────────────────────────
+
+def test_unpack_returns_football(valid_football, capsys):
+    buffer_football.cmd_unpack(_args(football=str(valid_football)))
+    out = json.loads(capsys.readouterr().out)
+    assert out["mode"] == "football"
+    assert out["planner_payload"]["thread"]["description"] == "Implement the buffer football script"
+
+
+# ── flag ──────────────────────────────────────────────────────────────────────
+
+def test_flag_appends_to_micro(worker_buffer_dir, capsys):
+    with patch.object(buffer_football, 'find_buffer_dir', return_value=worker_buffer_dir):
+        buffer_football.cmd_flag(_args(
+            type_flag="decision",
+            content='{"what": "use digest", "chose": "digest", "why": "keeps trunk voice clean"}',
+            rationale="Emerged during implementation"))
+    micro = json.loads((worker_buffer_dir / "football-micro.json").read_text())
+    assert len(micro["flagged_for_trunk"]) == 1
+    assert micro["flagged_for_trunk"][0]["type"] == "decision"
+
+
+def test_flag_accumulates_across_calls(worker_buffer_dir, capsys):
+    """Flag called twice produces two entries — async mid-session use."""
+    with patch.object(buffer_football, 'find_buffer_dir', return_value=worker_buffer_dir):
+        for i in range(2):
+            buffer_football.cmd_flag(_args(
+                type_flag="alpha_entry",
+                content=f'{{"key": "term_{i}", "definition": "def {i}"}}',
+                rationale=f"Term {i} coined during work"))
+    micro = json.loads((worker_buffer_dir / "football-micro.json").read_text())
+    assert len(micro["flagged_for_trunk"]) == 2
+
+
+# ── stale football detection ─────────────────────────────────────────────────
+
+def test_stale_football_detection(buffer_dir, capsys):
+    """Caught + 3 days old → stale flag in status output."""
+    stale_date = (datetime.now() - timedelta(days=4)).strftime("%Y-%m-%d")
+    fp = buffer_dir / "football.json"
+    fp.write_text(json.dumps({
+        "schema_version": 1, "mode": "football", "state": "caught",
+        "throw_type": "heavy", "thrown_by": "planner", "throw_count": 1,
+        "thrown_at": stale_date,
+        "planner_payload": {"thread": {"description": "Old task", "current_task": "x", "next_action": "y"}},
+        "worker_output": {}
+    }))
+    (buffer_dir / "handoff.json").write_text("{}")  # planner marker
+    with patch.object(buffer_football, 'find_buffer_dir', return_value=buffer_dir):
+        buffer_football.cmd_status(_args())
+    out = json.loads(capsys.readouterr().out)
+    assert out["football_state"] == "caught"
+    assert out.get("stale") is True
+
+
+def test_stale_football_fresh(buffer_dir, capsys):
+    """Caught + <3 days → no stale flag."""
+    fp = buffer_dir / "football.json"
+    fp.write_text(json.dumps({
+        "schema_version": 1, "mode": "football", "state": "caught",
+        "throw_type": "heavy", "thrown_by": "planner", "throw_count": 1,
+        "thrown_at": datetime.now().strftime("%Y-%m-%d"),
+        "planner_payload": {"thread": {"description": "Fresh task", "current_task": "x", "next_action": "y"}},
+        "worker_output": {}
+    }))
+    (buffer_dir / "handoff.json").write_text("{}")
+    with patch.object(buffer_football, 'find_buffer_dir', return_value=buffer_dir):
+        buffer_football.cmd_status(_args())
+    out = json.loads(capsys.readouterr().out)
+    assert out.get("stale", False) is False

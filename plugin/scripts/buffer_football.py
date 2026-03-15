@@ -179,6 +179,32 @@ def _pack_worker(args, bd, fp, throw_count, today):
     print(json.dumps({"packed": True, "throw_count": throw_count}))
 
 
+def cmd_unpack(args):
+    fp = Path(args.football)
+    if not fp.exists():
+        print(json.dumps({"error": f"not found: {fp}"}))
+        sys.exit(1)
+    with open(fp) as f:
+        print(json.dumps(json.load(f), indent=2))
+
+
+def cmd_flag(args):
+    bd = _resolve_buffer(args.cwd)
+    micro_path = _micro(bd)
+    micro = {}
+    if micro_path.exists():
+        with open(micro_path) as f:
+            micro = json.load(f)
+    micro.setdefault("flagged_for_trunk", []).append({
+        "type": args.type_flag,
+        "content": json.loads(args.content),
+        "rationale": args.rationale,
+    })
+    with open(micro_path, "w") as f:
+        json.dump(micro, f, indent=2)
+    print(json.dumps({"flagged": True, "total_flags": len(micro["flagged_for_trunk"])}))
+
+
 def cmd_pack(args):
     bd = _resolve_buffer(args.cwd)
     fp = _football(bd)
@@ -208,6 +234,13 @@ def main():
     p.add_argument("--cwd"); p.add_argument("--thread"); p.add_argument("--alpha-refs", dest="alpha_refs")
     p.add_argument("--completed"); p.add_argument("--changes"); p.add_argument("--next-action", dest="next_action")
     p.set_defaults(func=cmd_pack)
+
+    p = sub.add_parser("unpack"); p.add_argument("--football", required=True); p.set_defaults(func=cmd_unpack)
+    p = sub.add_parser("flag")
+    p.add_argument("--type", dest="type_flag",
+                   choices=["alpha_entry", "forward_note", "decision", "open_thread"], required=True)
+    p.add_argument("--content", required=True); p.add_argument("--rationale", required=True)
+    p.add_argument("--cwd"); p.set_defaults(func=cmd_flag)
 
     args = parser.parse_args()
     args.func(args)
