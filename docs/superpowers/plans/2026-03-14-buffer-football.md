@@ -23,7 +23,7 @@
 | `plugin/skills/catch/SKILL.md` | CREATE | Dyadic catch skill |
 | `plugin/skills/off/SKILL.md` | MODIFY | Add in-flight guard (Step 0b) |
 | `plugin/.claude-plugin/plugin.json` | MODIFY | 3.1.0 → 3.2.0 |
-| `plugin/skills/on/SKILL.md` | MODIFY | Version string 3.1.0 → 3.2.0 |
+| `plugin/skills/on/SKILL.md` | MODIFY | Version string 3.1.0 → 3.2.0 + football_in_flight notice |
 | `CHANGELOG.md` | MODIFY | Add 3.2.0 entry |
 | `tests/test_buffer_football.py` | CREATE | ~15 tests for buffer_football.py |
 
@@ -871,7 +871,7 @@ python plugin/scripts/buffer_football.py status
 
 - `"planner"` → Planner Branch (Steps 2P–8P)
 - `"worker"` → Worker Branch (Steps 2W–5W)
-- `"ambiguous"` → STOP: "Both trunk and micro-hot-layer found. Resolve manually before throwing."
+- `"ambiguous"` → **⚠ MANDATORY POPUP** via `AskUserQuestion`: "Both trunk and micro-hot-layer detected. Are you the planner or the worker?" If planner is selected, offer to absorb the stale micro-hot-layer before proceeding.
 - `"unknown"` → STOP: "No buffer found. Run /buffer:on or /buffer:catch first."
 
 ---
@@ -1027,6 +1027,8 @@ python plugin/scripts/buffer_football.py status
 Route:
 - `session_type == "worker"` AND `football_state == "in_flight"` → Worker Catch Branch
 - `session_type == "planner"` AND `football_state == "returned"` → Planner Absorb Branch
+- `session_type == "planner"` AND `football_state == "caught"` → **Stale Football Check**: read `thrown_at` from `football.json`. If 3+ days old, surface: "A football was caught on [date] but never returned. Absorb the worker's partial progress from `football-micro.json`?" If yes → Planner Absorb Branch (treat micro-hot-layer as partial heavy return). If no → STOP.
+- `session_type == "ambiguous"` → **⚠ MANDATORY POPUP** via `AskUserQuestion`: "Both trunk and micro-hot-layer detected. Are you the planner or the worker?" Route accordingly.
 - `football_state == null` → STOP: "No football found. Ask the planner to run /buffer:throw first."
 - Any other combination → STOP: tell the user what was found, ask them to verify session state.
 
@@ -1182,9 +1184,15 @@ If no → STOP. If yes → continue (football NOT auto-archived).
 
 Change `"version": "3.1.0"` → `"version": "3.2.0"` in `plugin/.claude-plugin/plugin.json`.
 
-- [ ] **Step 3: Update version string in on/SKILL.md**
+- [ ] **Step 3: Update version string and add football notice in on/SKILL.md**
 
 Find `buffer v3.1.0 |` in `plugin/skills/on/SKILL.md` Step 8 output template and change to `buffer v3.2.0 |`.
+
+Then, immediately after the `>7 days stale` note (around Step 8), add:
+
+```markdown
+If `football_in_flight` is `true` in the hot layer, add after the confirmation line: "Note: a football is in flight (thrown [thrown_at date]). Run `/buffer:catch` when the worker returns."
+```
 
 - [ ] **Step 4: Add CHANGELOG entry**
 
@@ -1235,3 +1243,6 @@ git push
 - [ ] `flag` called twice produces two entries in `football-micro.json`
 - [ ] Archive produces `footballs/YYYY-MM-DD-{slug}.json` and removes `football.json`
 - [ ] `/buffer:off` warns when `football_in_flight: true`
+- [ ] `/buffer:on` surfaces informational notice when `football_in_flight: true`
+- [ ] `/buffer:catch` detects stale footballs (caught 3+ days ago, never returned) and offers absorption
+- [ ] Ambiguous session state (both trunk + micro present) prompts user to disambiguate via `AskUserQuestion`
