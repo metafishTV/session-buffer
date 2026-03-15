@@ -35,16 +35,18 @@ These layers are designed and implemented together because they share hook touch
 
 ### Data Sources
 
-The sigma hook already receives session JSON via stdin on every `UserPromptSubmit` event. The relevant fields:
+The sigma hook and statusline both receive session JSON via stdin. The expected fields for context pressure are:
 
 - `remaining_percentage` / `used_percentage` — context pressure
 - `cache_read_input_tokens`, `cache_creation_input_tokens`, `input_tokens` — for cache ratio calculation
 
 Cache ratio = `cache_read / (cache_read + cache_creation + input)`. Low cache ratio + high context = compaction will be aggressive. This informs the injection message but does not change tier thresholds.
 
+**Prerequisite verification:** Before implementation, capture actual hook stdin JSON from both `sigma_hook.py` and `statusline.py` to confirm these fields are present. If any fields are absent, fall back to Claude's own context awareness (token budget warnings injected by the system) and omit the missing data from telemetry events rather than failing. The tier logic works with `used_percentage` alone; cache ratio is supplementary.
+
 ### Statusline Integration
 
-`statusline.py` already reads session JSON. Add a `ctx:XX%` segment after existing segments when `used_percentage >= 70`:
+`statusline.py` reads session JSON from stdin but currently only extracts `cwd`. Extend it to also extract `used_percentage` and add a `ctx:XX%` segment after existing segments when `used_percentage >= 70`:
 
 - `70-84%`: `ctx:72%`
 - `85-92%`: `ctx:87%!`
@@ -102,7 +104,13 @@ Emitted once per tier crossing per session — not on every message. The sigma h
 
 #### Session End Event
 
-Emitted by `/buffer:off` Step 13 (session markers section).
+Emitted by `/buffer:off` Step 13 via a script call:
+
+```bash
+python plugin/scripts/telemetry.py session-end --buffer-dir .claude/buffer/
+```
+
+The `session-end` subcommand scans today's entries in `telemetry.jsonl` to compute summary stats:
 
 ```json
 {
@@ -115,9 +123,12 @@ Emitted by `/buffer:off` Step 13 (session markers section).
 }
 ```
 
-- `compactions`: count of compaction events this session (from telemetry file scan or `.session_active`)
-- `warnings_emitted`: count of headroom warnings emitted this session
-- `peak_context_pct`: highest context percentage observed this session
+- `compactions`: count of `"event": "compact"` entries in telemetry with today's date
+- `off_count`: read from `.session_active`
+- `warnings_emitted`: count of `"event": "headroom_warning"` entries with today's date
+- `peak_context_pct`: max `context_pct` across all today's telemetry entries (compact + headroom_warning)
+
+This keeps the "emit, don't mine" principle — we're scanning a tiny file we wrote ourselves, not parsing transcripts. The `telemetry.py` script gains a `session-end` subcommand alongside the `emit` function used by other hooks.
 
 ### Telemetry Utility
 
@@ -143,8 +154,8 @@ def emit(buffer_dir, event_dict):
 | `plugin/scripts/sigma_hook.py` | Add context pressure check from session JSON. Inject warning at all tiers. Track last tier to avoid repetition. Emit `headroom_warning` to telemetry on tier crossing. | L2 + L3 |
 | `plugin/scripts/compact_hook.py` | In `pre-compact`: emit `compact` event to telemetry with context %, cache ratio, headroom tier, thread count, off_count. | L3 |
 | `plugin/scripts/statusline.py` | Add `ctx:XX%` segment when `used_percentage >= 70`. | L2 |
-| `plugin/skills/off/SKILL.md` | In Step 13 (session markers): emit `session_end` event to telemetry with session summary stats. | L3 |
-| `plugin/scripts/telemetry.py` | CREATE — shared emit utility. | L3 |
+| `plugin/skills/off/SKILL.md` | In Step 13 (session markers): call `telemetry.py session-end` to emit session summary. | L3 |
+| `plugin/scripts/telemetry.py` | CREATE — shared `emit()` function (imported by hooks) + `session-end` CLI subcommand (called by `/buffer:off`). | L3 |
 
 **No new hooks needed.** Everything piggybacks on existing hook events (PreCompact, UserPromptSubmit, `/buffer:off`).
 
@@ -175,7 +186,7 @@ def emit(buffer_dir, event_dict):
 
 | File | Action | Est. Lines |
 |---|---|---|
-| `plugin/scripts/telemetry.py` | CREATE | 40 |
+| `plugin/scripts/telemetry.py` | CREATE — emit() + session-end subcommand | 60 |
 | `tests/test_telemetry.py` | CREATE | 100 |
 | `plugin/scripts/sigma_hook.py` | MODIFY — add headroom check + telemetry emit | +30 |
 | `plugin/scripts/compact_hook.py` | MODIFY — add telemetry emit in pre-compact | +10 |
