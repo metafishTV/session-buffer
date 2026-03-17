@@ -21,7 +21,7 @@ Format: `Author_Title_Year_Type`
 Examples:
 - `DeLanda_AssemblageTheory_2016_Book`
 - `Lizier_JIDT_2014_Paper`
-- `Levinas_TotalityAndInfinity_1961_Book`
+- `Shannon_MathTheoryComm_1948_Paper`
 
 ## 2. Source Folder Naming
 

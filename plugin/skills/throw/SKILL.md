@@ -1,5 +1,5 @@
 ---
-name: buffer:throw
+name: throw
 description: Pack and throw a football. Planner side packs for the worker; worker side returns results. Dyadic — detects session type automatically.
 ---
 

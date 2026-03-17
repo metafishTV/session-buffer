@@ -473,10 +473,10 @@ Update the hot layer (`handoff.json`) only:
    **Relevance scoring heuristics** (additive, base=0.2, capped at 1.0):
    | Signal | +Score | Example |
    |--------|--------|---------|
-   | User correction | +0.3 | "RIP means X not Y" |
+   | User correction | +0.3 | "Term X means Y not Z" |
    | Named decision | +0.2 | "Chose inline extraction over cross-plugin" |
-   | Convergence | +0.3 | "Sartre and DeLanda converge on same structure" |
-   | Surprise / unexpected | +0.2 | "RH mapping was structural, not metaphorical" |
+   | Convergence | +0.3 | "Source A and Source B converge on same structure" |
+   | Surprise / unexpected | +0.2 | "Mapping was structural, not metaphorical" |
    | Framework touch | +0.2 | Relates to foundational concepts |
    | User emphasis | +0.3 | User explicitly flagged importance |
    | Routine progress | +0.0 | "Continuing implementation" |
@@ -485,7 +485,7 @@ Update the hot layer (`handoff.json`) only:
    **Examples:**
    - Low (r=0.2): `"Tests passing after routine fix. Moving to next phase."`
    - Medium (r=0.5): `"Decision: chose inline extraction over cross-plugin call. Avoids dependency."`
-   - High (r=0.8): `"User corrected my RIP interpretation — it's Preservation/Praxis, not Projection."`
+   - High (r=0.8): `"User corrected my interpretation of key term — it's X, not Y."`
 
 Write hot layer (`handoff.json`) and beta entry only. Do not touch warm or cold layers.
 

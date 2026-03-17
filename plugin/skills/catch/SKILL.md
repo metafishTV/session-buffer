@@ -1,5 +1,5 @@
 ---
-name: buffer:catch
+name: catch
 description: Catch a thrown football. Worker side initializes micro-session; planner side absorbs worker results into trunk. Dyadic — detects session type automatically.
 ---
 

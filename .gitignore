@@ -7,3 +7,7 @@ __pycache__/
 # Dev artifacts — specs and plans (not part of the distributed plugin)
 docs/plans/
 docs/superpowers/
+
+# Temp distill artifacts
+_distill_*.json
+_distill_*.txt
