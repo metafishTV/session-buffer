@@ -2,6 +2,13 @@
 
 All notable changes to buffer are documented here.
 
+## [buffer 3.4.0] - 2026-03-17
+
+### Onboarding + Help
+- **Returning user gate** — first-run now asks "Have you used the buffer plugin before?" to skip orientation for experienced users.
+- **Welcome orientation** — new users see a plain-text overview of all skills, modes, and what they can change later, before the configuration popups begin.
+- **`/buffer:help`** — new skill. Mode-aware reference card showing all available skills, current configuration, upgrade paths (lite users), remote backup setup (local-only users), and tips.
+
 ## [buffer 3.3.2] - 2026-03-17
 
 ### Marketplace + onboarding fixes

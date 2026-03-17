@@ -94,7 +94,11 @@ After preamble, branch by mode:
 ## First-Run Detection
 
 If `.claude/buffer/handoff.json` does not exist, this is a first-run.
-Before proceeding, complete initial setup. Each numbered step below is a **⚠ MANDATORY POPUP** — you MUST use `AskUserQuestion` for each one, wait for the response, and only then proceed to the next:
+Before proceeding, complete initial setup.
+
+**Returning user check**: **⚠ MANDATORY POPUP** via `AskUserQuestion`: "Have you used the buffer plugin before?" If no — display the welcome orientation from the on skill's Step 0d-pre before continuing. If yes — skip orientation and proceed directly.
+
+Each numbered step below is a **⚠ MANDATORY POPUP** — you MUST use `AskUserQuestion` for each one, wait for the response, and only then proceed to the next:
 
 1. **Scope** — **⚠ MANDATORY POPUP** via `AskUserQuestion`: "Buffer scope?"
    - **Full** — Concept maps, convergence webs, conservation, tower archival.

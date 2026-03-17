@@ -119,7 +119,43 @@ After the user selects a project, check if the selected repo has
 
 ### 0d: First-run setup
 
-No sigma trunk found anywhere. Initialize a new project:
+No sigma trunk found anywhere. Initialize a new project.
+
+**Step 0d-pre: Returning user check**
+
+**⚠ MANDATORY POPUP** via AskUserQuestion:
+
+> "Have you used the buffer plugin before?"
+> - **Yes** — skip the orientation below, proceed directly to scope selection (step 1).
+> - **No / first time** — display the welcome orientation below, then proceed.
+
+**Welcome orientation** (new users only — display as plain text, not a popup):
+
+```
+Welcome to the session buffer.
+
+What it does: preserves your working context across Claude Code sessions
+so the next instance picks up where you left off — decisions, threads,
+concepts, and momentum.
+
+Available skills:
+  /buffer:on     — reconstruct context at session start
+  /buffer:off    — write handoff at session end
+  /buffer:status — check session health and context runway
+  /buffer:throw  — delegate a task to a parallel session
+  /buffer:catch  — receive results from a parallel session
+  /buffer:help   — show this reference anytime
+
+You're about to choose a mode:
+  Lite  — tracks decisions and open threads. Good for everyday dev work.
+  Full  — adds concept maps, convergence webs, and research infrastructure.
+          Good for deep domain work, multi-source analysis, research projects.
+
+You can upgrade from Lite to Full later. You can also add git backup later.
+Nothing is permanent. Pick what fits now.
+```
+
+Then proceed to scope selection:
 
 1. **⚠ MANDATORY POPUP** via AskUserQuestion: "Buffer scope?" — Full / Lite
    - Full — Concept maps, convergence webs, conservation, tower archival.
@@ -416,7 +452,7 @@ Compute the gap between today and `session_meta.date` from the hot layer.
 Tell the user:
 
 ```
-buffer v3.3.2 | [scope] mode | Alpha: N referents (if present) | W: [ratio]
+buffer v3.4.0 | [scope] mode | Alpha: N referents (if present) | W: [ratio]
 Context reconstructed from [date] handoff ([N days ago]). Ready to continue from [current_phase].
 Autosave armed — sigma trunk will stay current throughout the session.
 ```
