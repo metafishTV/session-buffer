@@ -110,7 +110,10 @@ Before proceeding, complete initial setup. Each numbered step below is a **⚠ M
    - Git remote detected -> "Auto-push buffer after each handoff?" (yes/no)
    - No remote -> "Connect a GitHub repo for remote backup? Your work
      deserves a backup that lives somewhere safe." (yes -> guide setup / no)
+     If yes: create the repo as **private by default** (`gh repo create <name> --private`).
+     Only create public if the user explicitly requests it.
    - No git repo -> "Initialize git for your buffer?" (yes/no)
+     If yes and user also wants remote: same rule — **private by default**.
 
 4. Store in hot layer: `"scope": "full"|"lite"`, `"remote_backup": true|false`
 5. Initialize layers with scope-appropriate schemas

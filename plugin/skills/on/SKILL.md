@@ -128,7 +128,7 @@ No sigma trunk found anywhere. Initialize a new project:
      quick projects, session continuity without research infrastructure.
    Wait for response before continuing.
 2. **⚠ MANDATORY POPUP** via AskUserQuestion (Full only): "Project name + one-sentence core insight." Wait for response.
-3. **⚠ MANDATORY POPUP** via AskUserQuestion: "Remote backup?" (see off skill first-run flow). Wait for response.
+3. **⚠ MANDATORY POPUP** via AskUserQuestion: "Remote backup?" (see off skill first-run flow). If creating a new repo, default to **private** (`gh repo create <name> --private`). Only create public if user explicitly requests it. Wait for response.
 4. Initialize `.claude/buffer/` with scope-appropriate schemas:
    - **Target directory**: If a git repo was found (via Step 0a), create the
      buffer inside the git repo's `.claude/buffer/`, even if cwd is a parent
@@ -416,7 +416,7 @@ Compute the gap between today and `session_meta.date` from the hot layer.
 Tell the user:
 
 ```
-buffer v3.3.1 | [scope] mode | Alpha: N referents (if present) | W: [ratio]
+buffer v3.3.2 | [scope] mode | Alpha: N referents (if present) | W: [ratio]
 Context reconstructed from [date] handoff ([N days ago]). Ready to continue from [current_phase].
 Autosave armed — sigma trunk will stay current throughout the session.
 ```

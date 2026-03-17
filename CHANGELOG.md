@@ -2,6 +2,12 @@
 
 All notable changes to buffer are documented here.
 
+## [buffer 3.3.2] - 2026-03-17
+
+### Marketplace + onboarding fixes
+- **Fix marketplace.json versions** — marketplace manifest was stuck at buffer 1.1.0 / distill 1.2.0, causing new installs to report stale versions. Now matches actual plugin versions.
+- **Private repos by default** — first-run onboarding now creates GitHub repos as private unless user explicitly requests public.
+
 ## [buffer 3.3.1] - 2026-03-17
 
 ### Bugfix: throw/catch skill visibility
