@@ -52,6 +52,7 @@ def _load_buffer_utils():
 
 def _get_tier():
     """Get current model tier from state file written by statusline."""
+    _load_buffer_utils()  # idempotent — fast-path if already loaded
     if _read_model_tier:
         _, tier = _read_model_tier()
         return tier

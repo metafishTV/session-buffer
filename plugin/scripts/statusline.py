@@ -47,20 +47,29 @@ D = '\033[2m'    # dim
 B = '\033[1m'    # bold
 Z = '\033[0m'    # reset
 
-GIT_CACHE_FILE = os.path.join(os.environ.get('TEMP', '/tmp'), 'cc-statusline-git-cache')
+GIT_CACHE_DIR = os.environ.get('TEMP', '/tmp')
 GIT_CACHE_MAX_AGE = 5  # seconds
+
+
+def _git_cache_path(cwd):
+    """Per-project git cache file to avoid cross-contamination in multi-session setups."""
+    import hashlib
+    cwd_hash = hashlib.md5(cwd.encode()).hexdigest()[:8]
+    return os.path.join(GIT_CACHE_DIR, f'cc-statusline-git-{cwd_hash}')
 
 
 def get_git_info(cwd):
     """Get branch + staged/modified counts, cached to avoid lag."""
+    cache_file = _git_cache_path(cwd)
     try:
-        age = time.time() - os.path.getmtime(GIT_CACHE_FILE) if os.path.exists(GIT_CACHE_FILE) else 999
+        age = time.time() - os.path.getmtime(cache_file) if os.path.exists(cache_file) else 999
     except OSError:
         age = 999
 
     if age <= GIT_CACHE_MAX_AGE:
         try:
-            parts = open(GIT_CACHE_FILE).read().strip().split('|')
+            with open(cache_file, encoding='utf-8') as f:
+                parts = f.read().strip().split('|')
             if len(parts) == 3:
                 return parts[0], int(parts[1] or 0), int(parts[2] or 0)
         except Exception:
@@ -81,7 +90,7 @@ def get_git_info(cwd):
         s = len(staged.split('\n')) if staged else 0
         m = len(modified.split('\n')) if modified else 0
         try:
-            with open(GIT_CACHE_FILE, 'w') as f:
+            with open(cache_file, 'w', encoding='utf-8') as f:
                 f.write(f"{branch}|{s}|{m}")
         except OSError:
             pass
