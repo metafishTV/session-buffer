@@ -10,6 +10,10 @@ All notable changes to buffer are documented here.
 - **Unified presentation** — all reconstruction results combined into a single output section instead of interleaved read-then-present steps.
 - **Step 0a+0b merged** — discover command output feeds directly into the mandatory project selector popup. No intermediate manual scoring or merging.
 
+### Handoff pipeline streamlining
+- **`/buffer:off` SKILL.md rewrite** — 467→276 lines (41% reduction), zero features removed. Sequential steps merged into parallel batches, First-Run Detection deduped (references on.md instead of restating), compose steps (active work + decisions + threads) unified, infrastructure writes (registry, compaction directives, session markers, MEMORY sync) parallelized.
+- **Quicksave/Targeted briefing** — both modes now write briefing.md (was previously skipped).
+
 ## [buffer 3.7.0 / distill 3.1.0] - 2026-03-19
 
 ### Managed rules deployment (both plugins)

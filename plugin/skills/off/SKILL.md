@@ -21,7 +21,7 @@ the handoff — if it matters, it's in the alpha stash or it's gone.
   mappings, things that surprised you.
 - If a project skill exists, it overrides this file entirely.
 
-**What you produce**: `handoff.json` (hot), `handoff-warm.json` (warm), `handoff-cold.json` (cold) in `.claude/buffer/`, plus updates to `alpha/` (reference memory) if concept map entries changed, plus a git commit.
+**What you produce**: `handoff.json` (hot), `handoff-warm.json` (warm), `handoff-cold.json` (cold) in `.claude/buffer/`, plus updates to `alpha/` if concept map entries changed, plus a git commit.
 
 **ENFORCEMENT RULE — applies to every step below**: Any step that requires user input MUST use the `AskUserQuestion` tool. Do NOT substitute plain text questions, do NOT infer the user's answer from context, and do NOT skip the question because the answer seems obvious. You MUST call `AskUserQuestion`, you MUST wait for the response, and you MUST NOT continue past that step until the user has answered. Steps requiring `AskUserQuestion` are marked with **⚠ MANDATORY POPUP**.
 
@@ -64,17 +64,14 @@ The alpha stash — crystallized session learnings ready for merge. Omit section
 
 ## Mode Selection (FIRST)
 
-**⚠ MANDATORY POPUP**: You MUST call `AskUserQuestion` with the options below before proceeding.
-Do NOT default to Totalize. Do NOT infer the mode from context. Do NOT skip this popup. The user chooses.
+**⚠ MANDATORY POPUP**: You MUST call `AskUserQuestion` before proceeding. Do NOT default to Totalize. Do NOT infer the mode from context. The user chooses.
 
-`AskUserQuestion` options:
+Options:
 - **Totalize** — Complete end-of-session handoff (all steps below)
 - **Quicksave** — Fast sigma trunk checkpoint (~3 tool calls)
 - **Targeted** — Save specific items the user names (~4 tool calls)
 
-**Wait for the user's response before doing anything else.** Do NOT continue until the user has answered. Even if the session is ending and a full handoff seems obvious, the user may prefer a quicksave. Never assume.
-
-Then follow the selected mode. All modes begin with the **Shared Preamble**.
+**Wait for the user's response before doing anything else.** Then follow the selected mode. All modes begin with the **Shared Preamble**.
 
 ## Shared Preamble (all modes)
 
@@ -85,351 +82,162 @@ Then follow the selected mode. All modes begin with the **Shared Preamble**.
 3. Compute the **alpha stash**: items from this session NOT already captured in any layer
 
 After preamble, branch by mode:
-- **Totalize** -> continue to Step 0 below
-- **Quicksave** -> jump to "Quicksave Mode" at end of file
-- **Targeted** -> jump to "Targeted Mode" at end of file
+- **Totalize** → continue to Step 0 below
+- **Quicksave** → jump to "Quicksave Mode" at end of file
+- **Targeted** → jump to "Targeted Mode" at end of file
 
 ---
 
 ## First-Run Detection
 
-If `.claude/buffer/handoff.json` does not exist, this is a first-run.
-Before proceeding, complete initial setup.
-
-**Returning user check**: **⚠ MANDATORY POPUP** via `AskUserQuestion`: "Have you used the buffer plugin before?" If no — display the welcome orientation from the on skill's Step 0d-pre before continuing. If yes — skip orientation and proceed directly.
-
-Each numbered step below is a **⚠ MANDATORY POPUP** — you MUST use `AskUserQuestion` for each one, wait for the response, and only then proceed to the next:
-
-1. **Scope** — **⚠ MANDATORY POPUP** via `AskUserQuestion`: "Buffer scope?"
-   - **Full** — Concept maps, convergence webs, conservation, tower archival.
-     For research projects, multi-source analysis, deep domain work.
-   - **Lite** — Decisions and threads only. For everyday development,
-     quick projects, session continuity without research infrastructure.
-   Wait for response before continuing.
-
-2. **Project identity** — **⚠ MANDATORY POPUP** via `AskUserQuestion` (Full only):
-   "Project name + one-sentence core insight." Wait for response.
-
-3. **Remote backup** — **⚠ MANDATORY POPUP** via `AskUserQuestion`:
-   - Git remote detected -> "Auto-push buffer after each handoff?" (yes/no)
-   - No remote -> "Connect a GitHub repo for remote backup? Your work
-     deserves a backup that lives somewhere safe." (yes -> guide setup / no)
-     If yes: create the repo as **private by default** (`gh repo create <name> --private`).
-     Only create public if the user explicitly requests it.
-   - No git repo -> "Initialize git for your buffer?" (yes/no)
-     If yes and user also wants remote: same rule — **private by default**.
-
-4. Store in hot layer: `"scope": "full"|"lite"`, `"remote_backup": true|false`
-5. Initialize layers with scope-appropriate schemas
-6. Register in global project registry
-7. Proceed to first handoff (return to Mode Selection)
+If `.claude/buffer/handoff.json` does not exist, this is a first-run. Run the same first-run setup as `/buffer:on` Step 0d (returning user check, scope selection, remote backup, initialization, registry, MEMORY.md integration). Then return to Mode Selection above.
 
 ---
 
-## Step 0: Check for Project Skill
+## Step 0: Check for Project Skill + In-Flight Football
 
-Before doing anything else:
+Before proceeding:
 
-1. Determine the current repository root (via `git rev-parse --show-toplevel` or working directory)
-2. Check if `<repo>/.claude/skills/buffer/off.md` exists
-3. **If it exists**: read that file and follow its instructions instead. It contains project-specific schema, concept map structure, and terminology. Stop processing this file.
-4. **If it does not exist**: continue with the generic process below.
+1. Check if `<repo>/.claude/skills/buffer/off.md` exists. **If it exists**: read and follow it instead. Stop processing this file.
+
+2. Read `.claude/buffer/handoff.json`. If `football_in_flight == true`:
+   **⚠ MANDATORY POPUP**: "A football is in flight. Saving now means the worker's return throw will need to be caught in a new session. Wait for /buffer:catch, or save anyway?" If wait → STOP. If save → continue.
 
 ---
 
-## Process
+## Parallel Batch 1: Read + Gather
 
-### Step 0b: Check for in-flight football
+Fire simultaneously:
 
-Read `.claude/buffer/handoff.json`. If `football_in_flight == true`:
+1. **Read existing hot layer** (`.claude/buffer/handoff.json`). If missing, initialize fresh. If `schema_version` < 2, rename to `handoff-v1-archive.json` and triage into three-layer schema.
+2. **Gather git metadata**: date, `git rev-parse --short HEAD`, `git branch --show-current`, `git diff --name-only` against previous commit hash, test suite status.
 
-> "⚠️ A football is currently in flight to a worker session. Saving now means the worker's return throw will need to be caught in a new planner session.
->
-> 1. Wait — catch the worker's return (/buffer:catch) before saving
-> 2. Save anyway (football.json remains for manual recovery)
->
-> Save anyway? (yes/no)"
+---
 
-If no → STOP. If yes → continue (football NOT auto-archived).
+## Compose: Build the Alpha Stash
 
-### Step 1: Read existing hot layer
+Infer all of the following from the conversation (do NOT ask the user):
 
-Read `.claude/buffer/handoff.json` to understand the current state.
+**Active work** (Step 3):
+- Current phase/stage, completed this session, in-progress, blocked by what, recommended next action.
 
-- If the file does not exist, you are creating the first handoff. Initialize all layers fresh.
-- If `schema_version` is missing or < 2, note that migration from v1 is needed. Rename the old file to `handoff-v1-archive.json`, then triage its contents into the three-layer schema (hot/warm/cold) before proceeding.
+**Decisions** (Step 4):
+- For each decision: `what`, `chose`, `why`, `session` (today's date), `see` (warm-layer IDs if related, Full mode only — Lite omits `see`).
 
-### Step 2: Gather session metadata
+**Open threads** (Step 5):
+- For each unresolved item: `thread`, `status` (`noted`|`deferred`|`blocked`|`needs-user-input`), `ref` (if applicable), `see` (Full mode only).
 
-Collect via git commands:
+**Concept map + Consolidation** (Steps 6+6b, Full + Alpha only):
+> If `buffer_mode` is `"full"` AND `alpha/index.json` exists: read `full-ref.md` and run Steps 6 and 6b. Otherwise skip.
 
-- Today's date
-- Current commit hash (`git rev-parse --short HEAD`)
-- Current branch (`git branch --show-current`)
-- Files modified this session (`git diff --name-only` against the commit hash in the previous buffer, or the last 5 commits if no previous buffer)
-- Test status (run the project's test suite and capture the pass/fail summary line)
+---
 
-### Step 3: Summarize active work
+## Write: Instance Notes + Briefing + Summary
 
-Infer from the conversation (do NOT ask the user):
+### Instance notes (Step 7, all modes)
 
-- What phase/stage is the project in?
-- What was completed this session?
-- What is currently in-progress?
-- Is anything blocked? If so, by what?
-- What is the recommended next action?
+Write `instance_notes` — personal remarks from you to the next instance. Replaces previous notes entirely.
 
-### Step 4: Log decisions
+- **dialogue_style**: 1-2 sentences characterizing this session's tone/register. The next instance should match it from the first message.
+- **remarks**: Things you learned about working with this user/codebase not in structured data.
+- **open_questions**: Questions that occurred to you but weren't raised.
+- **alpha_accessed**: (optional) List of alpha IDs loaded this session.
 
-Review the conversation for decisions made this session. Write each to `recent_decisions` in the hot layer. For each decision:
+Be honest. If something confused you, say so.
 
-- `what`: What was decided
-- `chose`: What was chosen
-- `why`: Brief rationale
-- `session`: Today's date
-- `see`: Array of warm-layer IDs if the decision relates to existing warm entries (Full mode only — Lite mode omits `see`)
+### Session briefing (Step 7b, all modes)
 
-If a decision relates to an existing warm entry, include the pointer. If not, `"see": []` is fine.
+Write `.claude/buffer/briefing.md` — free-form narrative, colleague-to-colleague. Totalize: 15-40 lines. Quicksave/Targeted: 5-15 lines.
 
-### Step 5: List open threads
+Include: session arc (intellectual trajectory, not just completions), key moments (understanding shifts, corrections, debates), what surprised you, user working style observations, what to watch for.
 
-Identify unresolved questions, deferred items, and next steps. Write each to `open_threads` in the hot layer. For each:
+If beta bin exists, read it first (`beta-read --buffer-dir .claude/buffer/ --min-r 0.0`) and synthesize high-relevance entries (r >= 0.6) into key moments.
 
-- `thread`: Description
-- `status`: `noted` | `deferred` | `blocked` | `needs-user-input`
-- `ref`: Reference (file, doc section, etc.) if applicable
-- `see`: Array of warm-layer IDs for related context (Full mode only — Lite mode omits `see`)
+### Dialogue trace (Step 7c, Totalize only)
 
-### Step 6 + 6b: Concept Map + Consolidation (Full + Alpha only)
-
-> If `buffer_mode` is `"full"` AND `alpha/index.json` exists: read `full-ref.md` and run Steps 6 and 6b from there. Otherwise skip to Step 7.
-
-### Step 7: Write instance notes
-
-Write the `instance_notes` section — personal remarks from you to the next instance. This replaces previous instance_notes entirely. **All modes** — instance notes are always valuable.
-
-Include:
-
-- **dialogue_style**: A 1-2 sentence characterization of the conversational tone, register, and flavor of this session. Was it casual and collaborative? Terse and technical? Exploratory and discursive? Did the user use humor, shorthand, or a particular cadence? The next instance should be able to read this and match the register from the first message — not start cold and formal when the user was riffing casually. Examples: "Casual, collaborative, lots of shorthand — user thinks out loud and expects you to keep up rather than over-explain." / "Direct and technical. User prefers terse responses with no filler. Questions are sharp and expect equally sharp answers."
-- **remarks**: Things you learned about working with this user, this codebase, or this project that are not captured in the structured data. Warnings, tips, things that surprised you.
-- **open_questions**: Questions that occurred to you during the session but you did not get to raise. These help the next instance know where the edges of understanding are.
-- **alpha_accessed**: (optional) List of alpha referent IDs loaded this session (e.g., `["w:218", "cw:83"]`). Helps the next instance know which referents were relevant to this session's work without loading everything.
-
-Be honest. If something confused you, say so. If a mapping felt forced, flag it. The next instance benefits more from candor than from false confidence.
-
-### Step 7b: Write session briefing
-
-Write `.claude/buffer/briefing.md` — a free-form narrative document from you to the next instance. This is the colleague-to-colleague handoff. Not JSON, not structured fields. Natural language, honest, personal.
-
-**All modes** write a briefing. Totalize writes a full briefing (15-40 lines). Quicksave/Targeted writes a shorter briefing (5-15 lines) covering at minimum: session arc and any key moments.
-
-Include:
-
-- **Session arc**: What was this session *about*? Not what was completed (that's in active_work) but what the intellectual trajectory was. How did the conversation develop? What direction did it take that wasn't planned?
-- **Key moments**: Where did understanding shift? What corrections did the user make? What debates happened and how were they resolved? What would a 10-turn argument look like compressed to 2 sentences?
-- **What surprised me**: Observations the structured data doesn't capture. Things that don't fit neatly into decision/thread/concept.
-- **User working style**: Anything revealed this session about how the user thinks, communicates, or works that helps the next instance collaborate better.
-- **What to watch for**: Tensions, unresolved confusions, things you'd want to double-check if you were continuing.
-
-If the beta bin exists (`.claude/buffer/beta/narrative.jsonl`), read it first:
-```bash
-buffer_manager.py beta-read --buffer-dir .claude/buffer/ --min-r 0.0
-```
-Use the beta entries as source material — high-relevance entries (r >= 0.6) should be reflected in the briefing's key moments. Low-relevance entries provide timeline context. The briefing should be richer than any single beta entry — it's a *synthesis* of the rolling capture plus your full session context.
-
-### Step 7c: Update dialogue trace (Totalize only)
-
-> **Mode gate**: Totalize only. Quicksave and Targeted skip this step.
-
-Compose a cold-layer `dialogue_trace` entry distilled from the briefing:
-
+Compose a cold-layer `dialogue_trace` entry:
 ```json
 {
   "id": "c:N",
-  "session": "[brief session name, e.g. 'v1.9.0 atom markers + RH theory']",
-  "arc": "[2-3 sentence narrative arc — distilled from the briefing]",
+  "session": "[brief session name]",
+  "arc": "[2-3 sentence narrative arc]",
   "key_moments": ["[moment 1]", "[moment 2]", "[moment 3]", "[moment 4]"]
 }
 ```
+Append to cold `dialogue_trace.sessions`. Also review `recurring_patterns` — append if a new pattern was observed.
 
-Append to cold `dialogue_trace.sessions`. Use the next sequential `c:N` ID (check existing entries).
+### Beta promote + purge (Step 7d, if beta exists)
 
-Also: review `dialogue_trace.recurring_patterns` in the cold layer. If a new behavioral or intellectual pattern was observed this session (e.g., "User tests convergence by sharing source texts independently"), append it.
-
-### Step 7d: Promote and purge beta (if beta exists)
-
-> **Guard**: Only run if `.claude/buffer/beta/narrative.jsonl` exists.
-
-Promote high-relevance beta entries:
 ```bash
 buffer_manager.py beta-promote --buffer-dir .claude/buffer/
-```
-(Reads threshold from `beta_config.threshold` in hot layer, default 0.6. Adaptive — adjusts after each run.)
-
-Then purge old/promoted entries:
-```bash
 buffer_manager.py beta-purge --buffer-dir .claude/buffer/ --max-age 3
 ```
 
-**Lightweight mesh** (r >= 0.8 entries only): After promotion, scan promoted entries with r >= 0.8. For each, check if its `tags` or `text` reference a decision in `recent_decisions` (keyword match on `what` field) or an alpha concept (tag match). If match found, add/update a `narrative` field (1-2 sentences) on the target entry. This connects narrative to structure at the point of relevance. Most handoffs will have 0-2 mesh operations.
+**Lightweight mesh** (r >= 0.8 entries only): After promotion, scan promoted entries with r >= 0.8. If `tags`/`text` match a decision in `recent_decisions` or an alpha concept, add/update a `narrative` field (1-2 sentences) on the target. Most handoffs: 0-2 mesh operations.
 
-### Step 8: Write natural summary
+### Natural summary (Step 8)
 
-Write 2-3 plain-language sentences summarizing the session state. No encoding, no abbreviations, no codex. This should be readable by anyone.
+2-3 plain-language sentences. No encoding, no abbreviations, no codex. Readable by anyone.
 
-### Step 9: Conservation enforcement
+---
 
-Check each layer against its size bound and enforce migration.
+## Infrastructure: Conservation + Writes + Markers
 
-**If hot > 200 lines:**
-- Migrate oldest `recent_decisions` entries to warm `decisions_archive`
-- Migrate resolved `open_threads` to warm
-- Compact `orientation` if verbose
-- Re-check. If still > 200, warn the user.
+### Conservation enforcement (Step 9)
 
-**If warm > max lines (default 500, project may override):**
-- Migrate oldest `decisions_archive` entries to cold `archived_decisions`
-- When migrating an entry from warm to cold:
-  1. Assign it a new `c:N` ID in the cold layer
-  2. Leave a **redirect tombstone** in the warm layer:
-     ```json
-     { "id": "w:78", "migrated_to": "c:15", "session_migrated": "YYYY-MM-DD" }
-     ```
-  3. Hot-layer `"see"` pointers continue to resolve via the tombstone
-- Re-check. If still over, warn the user.
+**Hot > 200 lines**: Migrate oldest `recent_decisions` to warm `decisions_archive`, resolved `open_threads` to warm, compact `orientation`. Re-check; if still over, warn user.
 
-**If cold > 500 lines:**
-- Full mode: see `full-ref.md` for the tower archival questionnaire.
-- Lite mode: compress the oldest 30% by merging adjacent summaries, migrate compressed batch to cold.
+**Warm > max lines** (default 500, project may override): Migrate oldest `decisions_archive` to cold `archived_decisions`. Leave redirect tombstones (`{ "id": "w:78", "migrated_to": "c:15", "session_migrated": "YYYY-MM-DD" }`). Re-check; if still over, warn user.
 
-**Upward promotion (anopressive channel — Full + Alpha only):**
+**Cold > 500 lines**: Full mode: see `full-ref.md` for tower archival questionnaire. Lite mode: compress oldest 30% by merging adjacent summaries.
 
-After conservation enforcement (downward migration), check for upward promotion candidates:
+**Upward promotion** (Full + Alpha only): Run `alpha-health --buffer-dir .claude/buffer/`, check PROMOTION CANDIDATES. Any concept with 3+ sigma hits is a candidate. **⚠ MANDATORY POPUP** if candidates exist: "Promote to hot-layer flagged for immediate access? [list top 5 with hit counts]" / "Skip". If promoted: add to `concept_map_digest.flagged` with `"reason": "sigma_promotion"`.
 
-1. Run `alpha-health --buffer-dir .claude/buffer/` and check the PROMOTION CANDIDATES section
-2. Any concept with 3+ sigma hits is a candidate for promotion (it's being operationally used)
-3. **⚠ MANDATORY POPUP**: If candidates exist, present to user via `AskUserQuestion`:
-   - **Promote** — "These alpha concepts were activated [N]+ times this session. Promote to hot-layer `concept_map_digest.flagged` for immediate access next session: [list top 5 with hit counts]"
-   - **Skip** — "Keep current layer assignments."
-4. If promoted: add to `concept_map_digest.flagged` with `"reason": "sigma_promotion"`
+### Write all layers (Step 10)
 
-This closes the anapressive-anopressive loop: conservation pushes entries down based on age/size (anapressive absorption), promotion pulls entries up based on operational relevance (anopressive expression).
+Write `handoff.json`, `handoff-warm.json`, `handoff-cold.json` via `handoff` command (preferred) or Write tool directly. Before writing hot: check all fields against size constraints, compress if needed — never silently drop content.
 
-### Step 10: Write all layers
+**Project README**: If `.claude/README.md` doesn't exist (first handoff), generate it (buffer architecture, commands, file inventory, configuration, FAQ). If it exists, update file inventory only when structural changes occur.
 
-> **Mode note**: Lite mode writes only the lite schemas (see SKILL.md). Full mode writes all schemas.
+Increment `sessions_since_full_scan` in hot layer.
 
-Write `handoff.json`, `handoff-warm.json`, and `handoff-cold.json` to `.claude/buffer/`.
+### Parallel infrastructure (Steps 11-13)
 
-**How to write**: Use the `handoff` command (preferred) or write files directly with the Write tool. Do NOT call `buffer_manager.py warm-write` or `buffer_manager.py cold-write` — those subcommands do not exist. The valid commands are: `read`, `update`, `migrate`, `validate`, `sync`, `next-id`, `handoff`, `archive`, and the `alpha-*` / `beta-*` families.
+Fire simultaneously after layers are written:
 
-**Before writing hot layer**: Check all fields against the Hot Layer Size Constraints (defined in SKILL.md). Compress any fields that exceed their limits — do not silently drop content. Use the warm concept_map as a glossary for compression.
+1. **MEMORY.md sync** (Step 11, Full + Alpha only): See `full-ref.md`. Skip if `memory_config` doesn't exist or integration is `"none"`.
 
-**Project README**: If `.claude/README.md` does not exist (first handoff for this project), generate it now. This is user-facing documentation describing:
+2. **Project registry** (Step 12): Read/create `~/.claude/buffer/projects.json`. Add or update project entry with `repo_root` (from `git rev-parse --show-toplevel`), `buffer_path`, `scope`, `last_handoff`, `project_context`.
 
-- What the buffer system does for this project
-- The buffer architecture (hot/warm/cold/tower layers)
-- What `/buffer:off` and `/buffer:on` do (step summaries)
-- The concept map structure (groups, if a project skill defines them)
-- File inventory (buffer files, skill files)
-- How to configure (thresholds, concept map groups, MEMORY.md integration)
-- FAQ (common questions)
+3. **Compaction directives** (Step 12b): Update `.claude/buffer/compact-directives.md` — refresh Active Threads, update Already Persisted, review Session Vocabulary (migrate durable terms to trunk, remove session-specific ones).
 
-If `.claude/README.md` already exists, update its file inventory section if new buffer files were created (e.g., a tower file). Do not rewrite the full README on every handoff — only update when structural changes occur (new files, new concept map groups, configuration changes).
+4. **Session markers** (Step 13): Remove `.buffer_loaded`, increment `off_count` in `.session_active`. Emit telemetry: `python plugin/scripts/telemetry.py session-end --buffer-dir .claude/buffer/` (fail-silent).
 
-Increment `sessions_since_full_scan` in the hot layer.
+---
 
-### Step 11: MEMORY.md sync (Full + Alpha only)
+## Commit + Confirm
 
-> If `buffer_mode` is `"full"` AND `alpha/` exists: read `full-ref.md` for MEMORY.md sync protocol. Otherwise skip.
-
-### Step 12: Register in global project registry
-
-Read (or create) `~/.claude/buffer/projects.json`. If the current project is not registered, add it:
-
-```json
-{
-  "schema_version": 2,
-  "projects": {
-    "[project-name]": {
-      "repo_root": "[git rev-parse --show-toplevel output]",
-      "buffer_path": "[repo_root]/.claude/buffer",
-      "scope": "full | lite",
-      "last_handoff": "YYYY-MM-DD",
-      "project_context": "[one-sentence from orientation.core_insight]"
-    }
-  }
-}
-```
-
-Use `git rev-parse --show-toplevel` to get the `repo_root` dynamically. For lite users without a git repo, `repo_root` equals the working directory.
-
-If already registered, update `last_handoff` and ensure `repo_root` is present. Write back.
-
-The project name comes from the hot layer's `project_name` field (if present) or is inferred from the repo directory name.
-
-### Step 12b: Update compaction directives
-
-Update `.claude/buffer/compact-directives.md`:
-
-1. **Active Threads** — refresh to match what you just saved in
-   handoff.json open_threads.
-
-2. **Already Persisted** — update to reflect everything saved in this
-   /buffer:off cycle.
-
-3. **Session Vocabulary** — review each term:
-   - If it belongs in the project long-term, migrate it to the appropriate
-     trunk layer (concept_map in alpha, or a warm entry definition).
-   - If it was session-specific and already captured in the natural
-     summary, leave it — it will be overwritten next /buffer:on.
-   - If it's neither, remove it.
-
-The file stays on disk for reference. Next /buffer:on overwrites it.
-
-### Step 13: Update session markers
-
-Remove the sigma hook marker:
-```bash
-rm -f .claude/buffer/.buffer_loaded
-```
-
-Update `.claude/buffer/.session_active` — read the current JSON, increment `off_count` by 1, and write back:
-```json
-{"date": "YYYY-MM-DD", "off_count": N+1}
-```
-This tracks how many times the buffer has been saved this session. The statusline displays `buf:off×N` so the user can see session depth at a glance. At `off×3+`, consider suggesting a fresh session — context nuance erodes with each cycle.
-
-Emit session-end telemetry summary:
-```bash
-python plugin/scripts/telemetry.py session-end --buffer-dir .claude/buffer/
-```
-This logs a session summary (compaction count, warnings, peak context %) to `telemetry.jsonl`. Fail-silent — if it errors, proceed to Step 14.
-
-### Step 14: Commit
+### Commit (Step 14)
 
 ```bash
 git add .claude/buffer/handoff.json .claude/buffer/handoff-warm.json .claude/buffer/handoff-cold.json
 git add .claude/buffer/briefing.md
-# Include alpha changes if any referent files were added/modified
-git add .claude/buffer/alpha/
-# Include beta bin if it exists
+git add .claude/buffer/alpha/ 2>/dev/null || true
 git add .claude/buffer/beta/ 2>/dev/null || true
 git commit -m "handoff: <brief description of session>"
 ```
 
-If tower files were created, include them in the commit as well. MEMORY.md changes (from Step 11) are NOT committed — MEMORY.md lives outside the repo in the Claude projects directory and is managed separately.
+Include tower files if created. MEMORY.md changes are NOT committed (lives outside repo).
 
-### Step 14b + 14c: Grid Rebuild + Resolution Check (Full + Alpha only)
+### Grid rebuild + Resolution check (Steps 14b+14c, Full + Alpha only)
 
-> If `alpha/index.json` exists: read `full-ref.md` for grid rebuild (Step 14b) and resolution check (Step 14c). Otherwise skip.
+> If `alpha/index.json` exists: read `full-ref.md` for grid rebuild and resolution check.
 
-If `remote_backup` is true in the hot layer, follow the commit with `git push`.
+If `remote_backup` is true, follow commit with `git push`.
 
-### Step 15: Confirm
+### Confirm (Step 15)
 
-Run `validate --buffer-dir .claude/buffer/` to get layer sizes, then tell the user:
-
+Run `validate --buffer-dir .claude/buffer/` then tell user:
 ```
 Handoff written and committed.
 Hot: [N]/200 | Warm: [N]/[max] | Cold: [N]/500 | Alpha: [N] referents
@@ -441,14 +249,15 @@ The next instance can run /buffer:on to pick up where you left off.
 
 ## Quicksave Mode
 
-After the Shared Preamble (read all layers, scan dialogue, compute alpha stash):
+After the Shared Preamble:
 
-1. **Update hot layer fields**: `active_work`, `recent_decisions`, `open_threads`, `instance_notes`, `natural_summary`, `session_meta`
-2. **Write** `handoff.json` directly (1 Write call)
-3. **Commit**: `git add .claude/buffer/handoff.json && git commit -m "buffer: quicksave"`
-4. **Confirm**: "Quicksave written and committed. Hot: [N]/200 lines."
+1. Update hot layer fields: `active_work`, `recent_decisions`, `open_threads`, `instance_notes`, `natural_summary`, `session_meta`
+2. Write `handoff.json` directly (1 Write call)
+3. Write briefing.md (5-15 lines)
+4. Commit: `git add .claude/buffer/handoff.json .claude/buffer/briefing.md && git commit -m "buffer: quicksave"`
+5. Confirm: "Quicksave written and committed. Hot: [N]/200 lines."
 
-**Skips**: concept map (step 6), warm consolidation (6b), conservation (9), MEMORY.md sync (11), registry (12).
+**Skips**: concept map (6), warm consolidation (6b), conservation (9), MEMORY.md sync (11), registry (12).
 
 ---
 
@@ -456,11 +265,12 @@ After the Shared Preamble (read all layers, scan dialogue, compute alpha stash):
 
 After the Shared Preamble:
 
-1. **⚠ MANDATORY POPUP**: Ask the user via `AskUserQuestion`: "What do you want to capture?" Wait for their response before continuing. Do NOT infer from the conversation what they want saved.
-2. **Compose** entries from the user's description only — do not scan full dialogue
-3. **Merge** into hot layer (add to `recent_decisions`, `open_threads`, or `instance_notes` as appropriate)
-4. **Write** `handoff.json` directly (1 Write call)
-5. **Commit**: `git add .claude/buffer/handoff.json && git commit -m "buffer: targeted save"`
-6. **Confirm**: "Targeted save written and committed. Hot: [N]/200 lines."
+1. **⚠ MANDATORY POPUP**: Ask via `AskUserQuestion`: "What do you want to capture?" Wait for response. Do NOT infer from conversation.
+2. Compose entries from the user's description only — do not scan full dialogue
+3. Merge into hot layer (`recent_decisions`, `open_threads`, or `instance_notes` as appropriate)
+4. Write `handoff.json` directly (1 Write call)
+5. Write briefing.md (5-15 lines)
+6. Commit: `git add .claude/buffer/handoff.json .claude/buffer/briefing.md && git commit -m "buffer: targeted save"`
+7. Confirm: "Targeted save written and committed. Hot: [N]/200 lines."
 
 **Same skips as Quicksave.** The difference: AI captures only what the user specified, not the full dialogue alpha stash.
