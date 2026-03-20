@@ -43,6 +43,15 @@
         }]
       }
     ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{
+          "type": "prompt",
+          "prompt": "If the Bash command pipes JSON via echo to buffer_manager.py (pattern: echo ... | python ... buffer_manager.py), BLOCK it. Windows shell mangles quotes and special characters in echo-piped JSON. Instead, write JSON to a temp file in Python and redirect from the file. Only block echo-pipe patterns to buffer_manager.py specifically — other echo usage is fine."
+        }]
+      }
+    ],
     "UserPromptSubmit": [
       {
         "matcher": "*",
