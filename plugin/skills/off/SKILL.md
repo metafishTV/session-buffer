@@ -211,7 +211,7 @@ Fire simultaneously after layers are written:
 
 3. **Compaction directives** (Step 12b): Update `.claude/buffer/compact-directives.md` — refresh Active Threads, update Already Persisted, review Session Vocabulary (migrate durable terms to trunk, remove session-specific ones).
 
-4. **Session markers** (Step 13): Remove `.buffer_loaded`, increment `off_count` in `.session_active`. Emit telemetry: `python plugin/scripts/telemetry.py session-end --buffer-dir .claude/buffer/` (fail-silent).
+4. **Session markers** (Step 13): Remove `.buffer_loaded`, increment `off_count` in `.session_active`. Emit telemetry: `python <scripts>/telemetry.py session-end --buffer-dir .claude/buffer/` (fail-silent).
 
 ---
 

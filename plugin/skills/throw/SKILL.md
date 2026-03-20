@@ -7,12 +7,16 @@ description: Pack and throw a football. Planner side packs for the worker; worke
 
 Packs the football for the other session to catch. Behavior depends on session type — detected automatically. Footballs are stored globally at `~/.claude/buffer/footballs/`. Each ball carries the project location so workers can find it.
 
+## Script Tooling
+
+**`buffer_football.py`** (plugin-relative, in `scripts/` next to this skill's parent directory) handles all football operations. Resolve the absolute path from this skill's base directory: `<base_directory>/../../scripts/buffer_football.py`.
+
 ---
 
 ## Step 1: Detect session type
 
 ```bash
-python plugin/scripts/buffer_football.py status
+python <scripts>/buffer_football.py status
 ```
 
 - `"planner"` → Planner Branch (Steps 2P–7P)
@@ -64,7 +68,7 @@ Format as JSON array: `["w:152"]` or `[]`.
 
 **Heavy:**
 ```bash
-python plugin/scripts/buffer_football.py pack \
+python <scripts>/buffer_football.py pack \
   --side planner --type heavy \
   --thread '<THREAD_JSON>' \
   --alpha-refs '<ALPHA_REFS_JSON>'
@@ -72,7 +76,7 @@ python plugin/scripts/buffer_football.py pack \
 
 **Lite:**
 ```bash
-python plugin/scripts/buffer_football.py pack \
+python <scripts>/buffer_football.py pack \
   --side planner --type lite \
   --thread '<THREAD_JSON>'
 ```
@@ -117,12 +121,12 @@ Determine the `ball_id` from the micro-hot-layer filename (`micro-<ball_id>.json
 
 **Heavy:**
 ```bash
-python plugin/scripts/buffer_football.py pack --side worker --type heavy --ball-id <ball_id>
+python <scripts>/buffer_football.py pack --side worker --type heavy --ball-id <ball_id>
 ```
 
 **Lite:**
 ```bash
-python plugin/scripts/buffer_football.py pack \
+python <scripts>/buffer_football.py pack \
   --side worker --type lite --ball-id <ball_id> \
   --completed '<JSON_ARRAY>' \
   --changes '<JSON_ARRAY>' \

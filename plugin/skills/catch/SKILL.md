@@ -7,12 +7,16 @@ description: Catch a thrown football. Worker side initializes micro-session; pla
 
 Unpacks the football and acts. Behavior depends on the football's current state, detected automatically. Footballs live globally at `~/.claude/buffer/footballs/` — no project buffer discovery needed to catch.
 
+## Script Tooling
+
+**`buffer_football.py`** (plugin-relative, in `scripts/` next to this skill's parent directory) handles all football operations. Resolve the absolute path from this skill's base directory: `<base_directory>/../../scripts/buffer_football.py`.
+
 ---
 
 ## Step 1: Detect session and football state
 
 ```bash
-python plugin/scripts/buffer_football.py status
+python <scripts>/buffer_football.py status
 ```
 
 The output includes `mode` (`"legacy"` or `"multi-ball"`) and `session_type`. Route based on `session_type`:
@@ -34,7 +38,7 @@ Check `in_flight`, `caught`, `returned` arrays and `stale_balls` in the status o
 ### Step 2W: Catch the ball
 
 ```bash
-python plugin/scripts/buffer_football.py catch
+python <scripts>/buffer_football.py catch
 ```
 
 This single call handles ball selection, validation, unpacking, and state transition (`in_flight` → `caught`). Returns:
@@ -98,7 +102,7 @@ You have access to every skill, agent, and tool available. **Use them proactivel
 
 Flag items for trunk carry-over:
 ```bash
-python plugin/scripts/buffer_football.py flag \
+python <scripts>/buffer_football.py flag \
   --type decision|alpha_entry|forward_note|open_thread \
   --content '<JSON>' \
   --rationale '<why this warrants verbatim carry-over>'
@@ -112,7 +116,7 @@ Add `--ball-id <id>` if multiple balls are active.
 ### Step 2P: Unpack and present worker output
 
 ```bash
-python plugin/scripts/buffer_football.py unpack --ball-id <ball_id>
+python <scripts>/buffer_football.py unpack --ball-id <ball_id>
 ```
 
 If error → show to user, STOP.
@@ -148,7 +152,7 @@ Update `.claude/buffer/handoff.json`:
 ### Step 5P: Clear football_in_flight + Archive
 
 ```bash
-python plugin/scripts/buffer_football.py archive --ball-id <ball_id>
+python <scripts>/buffer_football.py archive --ball-id <ball_id>
 ```
 
 Read `handoff.json`. Set `"football_in_flight": false`. Write back.
