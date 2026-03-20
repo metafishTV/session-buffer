@@ -1,11 +1,11 @@
 ---
 name: throw
-description: Pack and throw a football. Planner side packs for the worker; worker side returns results. Dyadic — detects session type automatically.
+description: Pack and throw a football. Planner side packs stepwise instructions for the worker; worker side returns verified results. Dyadic — detects session type automatically.
 ---
 
 # /buffer:throw
 
-Packs the football for the other session to catch. Behavior depends on session type — detected automatically. Footballs are stored globally at `~/.claude/buffer/footballs/`. Each ball carries the project location so workers can find it.
+Packs and throws a football. Footballs live globally at `~/.claude/buffer/footballs/`. Each ball carries the project location so workers find it regardless of cwd.
 
 ## Script Tooling
 
@@ -19,43 +19,53 @@ Packs the football for the other session to catch. Behavior depends on session t
 python <scripts>/buffer_football.py status
 ```
 
-- `"planner"` or `"idle"` → Planner Branch (Steps 2P–7P) — you're throwing a new ball
-- `"worker"` → Worker Branch (Steps 2W–5W) — you're returning results
+- `"planner"` or `"idle"` → Planner Branch — you're throwing a new ball
+- `"worker"` → Worker Branch — you're returning results
 - `"stale_worker"` → **⚠ MANDATORY POPUP**: "A ball is caught but has no active worker. Absorb it first or discard?" Then route accordingly.
 
-Check `in_flight` array in status output to see if other balls are already out.
+Check `in_flight` array to see if other balls are already out.
 
 ---
 
 ## Planner Branch
 
+The planner provides **diachronic input**: ordered steps with enough context that the worker can execute without guessing. The quality of the throw determines the quality of the catch.
+
 ### Step 2P: Choose throw type
 
-Ask:
-> "First throw to this worker session (heavy — full context + dialogue style), or are they already running (lite — task only)?"
+- First throw to this worker → **heavy** (full context + dialogue style)
+- Worker already warmed up → **lite** (task only)
 
-- First throw → **heavy**
-- Worker already warmed up → **lite**
+### Step 3P: Build the thread
 
-### Step 3P: Collect thread
+The thread is the planner's contract with the worker. It must be **stepwise and specific**.
 
-Ask for:
-- `description` — What is the worker being asked to do? (1-2 sentences)
-- `current_task` — The specific task for this throw (1 sentence)
-- `files_to_touch` — Comma-separated file paths (or blank)
-- `design_docs` — Relevant spec/plan paths (or blank)
-- `next_action` — Concrete first step for the worker
+Collect from the user (or derive from the current session state):
+
+1. `description` — What is the worker being asked to do? (1-3 sentences, scope and purpose)
+2. `steps` — **Required.** Ordered array of discrete steps. Each step:
+   - `action`: What to do (imperative, specific — "Read X", "Build Y", "Run Z")
+   - `files`: Files involved (paths)
+   - `done_when`: How the worker knows this step is complete (observable condition)
+3. `files_to_touch` — All files the worker may need to read or modify
+4. `design_docs` — Specs, plans, or reference docs the worker should read before starting
+5. `constraints` — What the worker must NOT do (boundaries, scope limits, protected files)
 
 Build as JSON:
 ```json
 {
   "description": "...",
-  "current_task": "...",
+  "steps": [
+    {"action": "...", "files": ["..."], "done_when": "..."},
+    {"action": "...", "files": ["..."], "done_when": "..."}
+  ],
   "files_to_touch": ["..."],
   "design_docs": ["..."],
-  "next_action": "..."
+  "constraints": ["..."]
 }
 ```
+
+**Quality gate**: If the thread has no `steps` array or steps lack `done_when` conditions, push back. Vague throws produce vague results.
 
 ### Step 4P (heavy only): Collect alpha refs
 
@@ -80,7 +90,7 @@ python <scripts>/buffer_football.py pack \
   --thread '<THREAD_JSON>'
 ```
 
-The script returns the assigned `ball_id` in the output. Note it for the user.
+The script returns the assigned `ball_id`.
 
 ### Step 6P: Set football_in_flight on trunk
 
@@ -88,35 +98,45 @@ Read `.claude/buffer/handoff.json`. Set `"football_in_flight": true`. Write back
 
 ### Step 7P: Confirm
 
-Show the user:
-- Thread description and current task
+Show:
+- Thread description, step count, and constraints
 - Throw type + ball ID
 - Alpha refs (if heavy)
 
-Tell the user: "Football packed (ball: [ball_id]). Share the project path with your worker session and have them run `/buffer:catch`."
+Tell the user: "Football packed (ball: [ball_id]). Worker session runs `/buffer:catch` to begin."
 
 ---
 
 ## Worker Branch
 
+The worker returns **synchronic output**: a state snapshot of what was done, what changed, and what was verified. The planner needs to absorb this without re-investigating.
+
 ### Step 2W: Choose return type
 
-Ask:
-> "Session end (heavy — full micro-hot-layer) or finishing one task with more coming (lite — output diff)?"
+- Session end → **heavy** (full micro-hot-layer digest)
+- More tasks coming → **lite** (output diff)
 
-- Session end → **heavy**
-- More tasks coming → **lite**
+### Step 3W: Build the return report
 
-### Step 3W (lite only): Collect output
+Whether heavy or lite, the worker's return must meet these **hard requirements**:
 
-Ask:
-- Completed (comma-separated): what did you finish?
-- Changes made (comma-separated): key files/decisions
-- Next action for the planner
+1. **Step-by-step accounting**: For each step in the planner's `steps` array, report: done / partially done / skipped / blocked. No step goes unaccounted.
+2. **Show work**: What was tried. If something failed before succeeding, say so. The planner needs the trajectory, not just the endpoint.
+3. **Test evidence**: If tests were run, include: what was tested, how, and the result. "Tests pass" is not sufficient — name the tests or describe the verification.
+4. **Deviation flagging**: Anything that diverged from the plan. If you changed approach mid-task, explain why. If you touched files not in `files_to_touch`, explain why.
+5. **Surprises**: Anything the planner didn't anticipate that they should know about.
+
+**Lite return** — collect from session state:
+- Completed steps (by number/name from the plan)
+- Changes made (files + what changed)
+- Deviations from plan (if any)
+- Next action for planner
+
+**Heavy return** — the micro-hot-layer covers this automatically if maintained during the session. Review it before packing to ensure completeness.
 
 ### Step 4W: Pack return
 
-Determine the `ball_id` from the micro-hot-layer filename (`micro-<ball_id>.json` in `~/.claude/buffer/footballs/`).
+Determine `ball_id` from the micro-hot-layer filename (`micro-<ball_id>.json` in `~/.claude/buffer/footballs/`).
 
 **Heavy:**
 ```bash
@@ -132,8 +152,8 @@ python <scripts>/buffer_football.py pack \
   --next-action '<STRING>'
 ```
 
-(If only one caught ball exists, `--ball-id` can be omitted — the script auto-detects.)
+(If only one caught ball exists, `--ball-id` can be omitted.)
 
 ### Step 5W: Confirm
 
-Tell the user: "Football returned (ball: [ball_id]). Have the planner session run `/buffer:catch`."
+Tell the user: "Football returned (ball: [ball_id]). Planner session runs `/buffer:catch` to absorb."
