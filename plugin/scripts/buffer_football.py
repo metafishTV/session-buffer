@@ -2,9 +2,11 @@
 # -*- coding: utf-8 -*-
 """buffer_football.py — football lifecycle for buffer:throw / buffer:catch
 
-Supports both legacy single-ball mode (football.json) and multi-ball mode
-(football-registry.json + footballs/*.json). Multi-ball adds intercept
-capability and parallel worker sessions.
+Footballs are stored globally at ~/.claude/buffer/footballs/ with a registry
+at ~/.claude/buffer/football-registry.json. Each ball carries project_root
+and buffer_dir so workers can find the project regardless of cwd.
+
+Commands: status, pack, catch, unpack, archive, intercept, flag, validate.
 """
 
 import argparse
@@ -47,26 +49,43 @@ SCHEMA_PATH = Path(_script_dir).parent.parent / "schemas" / "football.schema.jso
 
 
 # ---------------------------------------------------------------------------
-# Path helpers
+# Path helpers — global (plugin-native) football storage
 # ---------------------------------------------------------------------------
 
+GLOBAL_DIR = Path(os.path.expanduser('~')) / '.claude' / 'buffer'
+
+def _global_footballs():  return GLOBAL_DIR / 'footballs'
+def _global_registry():   return GLOBAL_DIR / 'football-registry.json'
+def _global_archive():    return GLOBAL_DIR / 'football-archive'
+
+def _ball_file(ball_id):
+    return _global_footballs() / f"{ball_id}.json"
+
+def _ball_micro(ball_id):
+    return _global_footballs() / f"micro-{ball_id}.json"
+
+# Project buffer helpers — only for reading trunk context, not football storage
+def _hot(bd):         return Path(bd) / "handoff.json"
+
 def _resolve_buffer(cwd):
+    """Find project buffer dir. Returns None instead of exiting if not found."""
     bd = find_buffer_dir(Path(cwd) if cwd else Path.cwd())
+    return Path(bd) if bd else None
+
+def _resolve_buffer_or_exit(cwd):
+    """Find project buffer dir, exit with error if not found."""
+    bd = _resolve_buffer(cwd)
     if bd is None:
         print(json.dumps({"error": "buffer directory not found"}))
         sys.exit(1)
-    return Path(bd)
+    return bd
 
-def _football(bd):    return Path(bd) / "football.json"
-def _micro(bd):       return Path(bd) / "football-micro.json"
-def _hot(bd):         return Path(bd) / "handoff.json"
-def _registry(bd):    return Path(bd) / "football-registry.json"
-def _balls_dir(bd):   return Path(bd) / "footballs"
-
-def _ball_file(bd, ball_id):
-    return _balls_dir(bd) / f"{ball_id}.json"
-
-def _ball_micro(bd, ball_id):
+# Legacy project-local paths (for migration only)
+def _legacy_football(bd):    return Path(bd) / "football.json"
+def _legacy_micro(bd):       return Path(bd) / "football-micro.json"
+def _legacy_registry(bd):    return Path(bd) / "football-registry.json"
+def _legacy_balls_dir(bd):   return Path(bd) / "footballs"
+def _legacy_ball_micro(bd, ball_id):
     return Path(bd) / f"football-micro-{ball_id}.json"
 
 
@@ -85,20 +104,17 @@ def _read_json(path):
         return {}
 
 
-def _read_registry(bd):
-    """Read the multi-ball registry. Returns None if not in multi-ball mode."""
-    rp = _registry(bd)
+def _read_registry():
+    """Read the global football registry. Returns None if no registry exists."""
+    rp = _global_registry()
     if not rp.exists():
         return None
     return _read_json(rp)
 
 
-def _write_registry(bd, registry):
-    atomic_write_json(str(_registry(bd)), registry)
-
-
-def _is_multiball(bd):
-    return _registry(bd).exists()
+def _write_registry(registry):
+    GLOBAL_DIR.mkdir(parents=True, exist_ok=True)
+    atomic_write_json(str(_global_registry()), registry)
 
 
 def _slug(description):
@@ -107,17 +123,94 @@ def _slug(description):
     return "-".join(re.sub(r"[^\w]", "", w).lower() for w in words if w) or "football"
 
 
-def _generate_ball_id(bd, description):
+def _generate_ball_id(description):
     """Generate a ball ID: {MMDD}-{slug}-{N} with auto-increment."""
     today = datetime.now(timezone.utc)
     prefix = today.strftime("%m%d") + "-" + _slug(description)
-    balls_dir = _balls_dir(bd)
+    balls_dir = _global_footballs()
     n = 1
     while True:
         ball_id = f"{prefix}-{n}"
         if not (balls_dir / f"{ball_id}.json").exists():
             return ball_id
         n += 1
+
+
+def _migrate_legacy(bd):
+    """Migrate project-local football files to global storage. Returns registry or None."""
+    migrated = False
+    registry = _read_registry()
+
+    # Migrate multi-ball registry + balls
+    legacy_reg_path = _legacy_registry(bd)
+    if legacy_reg_path.exists():
+        legacy_reg = _read_json(legacy_reg_path)
+        if registry is None:
+            registry = legacy_reg
+        else:
+            # Merge balls into existing global registry
+            for bid, info in legacy_reg.get("balls", {}).items():
+                if bid not in registry.get("balls", {}):
+                    registry.setdefault("balls", {})[bid] = info
+        # Move ball files
+        legacy_bd = _legacy_balls_dir(bd)
+        if legacy_bd.exists():
+            _global_footballs().mkdir(parents=True, exist_ok=True)
+            for f in legacy_bd.iterdir():
+                dest = _global_footballs() / f.name
+                if not dest.exists():
+                    f.rename(dest)
+                else:
+                    f.unlink()  # duplicate
+            # Remove empty dir
+            try:
+                legacy_bd.rmdir()
+            except OSError:
+                pass
+        # Move micro files
+        for bid in legacy_reg.get("balls", {}):
+            lm = _legacy_ball_micro(bd, bid)
+            if lm.exists():
+                dest = _ball_micro(bid)
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                lm.rename(dest)
+        legacy_reg_path.unlink()
+        migrated = True
+
+    # Migrate legacy single-ball football.json
+    legacy_fp = _legacy_football(bd)
+    if legacy_fp.exists():
+        data = _read_json(legacy_fp)
+        if data:
+            # Assign a ball_id and move to global
+            desc = data.get("planner_payload", {}).get("thread", {}).get("description", "migrated")
+            ball_id = _generate_ball_id(desc)
+            data["ball_id"] = ball_id
+            _global_footballs().mkdir(parents=True, exist_ok=True)
+            atomic_write_json(str(_ball_file(ball_id)), data)
+            if registry is None:
+                registry = {"schema_version": 1, "balls": {}}
+            registry["balls"][ball_id] = {
+                "state": data.get("state", "unknown"),
+                "target": data.get("target", "instance"),
+                "thrown_at": data.get("thrown_at", ""),
+                "file": f"footballs/{ball_id}.json",
+            }
+        legacy_fp.unlink()
+        # Migrate legacy micro
+        lm = _legacy_micro(bd)
+        if lm.exists():
+            dest = _ball_micro(ball_id)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            lm.rename(dest)
+        migrated = True
+
+    if migrated and registry:
+        _write_registry(registry)
+        print(f"Migrated football files to global storage (~/.claude/buffer/footballs/)",
+              file=sys.stderr)
+
+    return registry if migrated else None
 
 
 def _get_balls_by_state(registry, state):
@@ -129,75 +222,47 @@ def _get_balls_by_state(registry, state):
 
 
 # ---------------------------------------------------------------------------
-# Legacy single-ball helpers (preserved for backward compatibility)
-# ---------------------------------------------------------------------------
-
-def _legacy_status(bd):
-    """Status check for legacy single-ball mode."""
-    has_trunk = _hot(bd).exists()
-    has_micro = _micro(bd).exists()
-    fp = _football(bd)
-    football_state = throw_type = None
-    stale = False
-    fb_data = {}
-    if fp.exists():
-        fb_data = _read_json(fp)
-        football_state = fb_data.get("state")
-    if has_trunk and has_micro:
-        session_type = "ambiguous"
-        print("WARNING: both handoff.json and football-micro.json found", file=sys.stderr)
-    elif has_trunk and football_state == "in_flight":
-        session_type = "ambiguous"
-    elif has_trunk:
-        session_type = "planner"
-    elif has_micro:
-        session_type = "worker"
-    else:
-        session_type = "unknown"
-    if fp.exists():
-        try:
-            check_schema_version(fb_data, max_supported=1, path=str(fp))
-        except SchemaVersionError as e:
-            print(f"warning: {e}", file=sys.stderr)
-        if fb_data == {}:
-            print("warning: football.json is empty — treating as corrupt", file=sys.stderr)
-            football_state = "corrupt"
-        throw_type = fb_data.get("throw_type")
-        if football_state == "caught":
-            thrown_at = fb_data.get("thrown_at", "")
-            try:
-                age = (datetime.now(timezone.utc) - datetime.strptime(thrown_at, "%Y-%m-%d").replace(tzinfo=timezone.utc)).days
-                stale = age >= 3
-            except ValueError:
-                pass
-    result = {"session_type": session_type, "football_state": football_state,
-              "throw_type": throw_type, "buffer_dir": str(bd), "mode": "legacy"}
-    if stale:
-        result["stale"] = True
-    return result
-
-
-# ---------------------------------------------------------------------------
 # Subcommand: status
 # ---------------------------------------------------------------------------
 
 def cmd_status(args):
+    # Try to find project buffer (optional — status works without it)
     bd = _resolve_buffer(args.cwd)
-    registry = _read_registry(bd)
+
+    # Check for legacy project-local files and migrate if found
+    if bd:
+        legacy_fp = _legacy_football(bd)
+        legacy_reg = _legacy_registry(bd)
+        if legacy_fp.exists() or legacy_reg.exists():
+            _migrate_legacy(bd)
+
+    # Read global registry
+    registry = _read_registry()
 
     if registry is None:
-        # Legacy single-ball mode
-        print(json.dumps(_legacy_status(bd)))
+        # No footballs anywhere
+        has_trunk = bd and _hot(bd).exists()
+        result = {
+            "session_type": "planner" if has_trunk else "unknown",
+            "mode": "global",
+            "ball_count": 0,
+            "in_flight": [],
+            "caught": [],
+            "returned": [],
+            "balls": {},
+        }
+        if bd:
+            result["buffer_dir"] = str(bd)
+        print(json.dumps(result))
         return
 
-    # Multi-ball mode
-    has_trunk = _hot(bd).exists()
+    has_trunk = bd and _hot(bd).exists()
     balls = registry.get("balls", {})
 
-    # Detect session type from micro files
+    # Detect session type from micro files (global location)
     active_micros = []
     for ball_id in balls:
-        if _ball_micro(bd, ball_id).exists():
+        if _ball_micro(ball_id).exists():
             active_micros.append(ball_id)
 
     if has_trunk and active_micros:
@@ -218,7 +283,8 @@ def cmd_status(args):
             "state": state,
             "target": info.get("target", "instance"),
             "thrown_at": info.get("thrown_at"),
-            "has_micro": _ball_micro(bd, ball_id).exists(),
+            "has_micro": _ball_micro(ball_id).exists(),
+            "project_root": info.get("project_root", ""),
         }
         if state == "caught":
             thrown_at = info.get("thrown_at", "")
@@ -235,14 +301,15 @@ def cmd_status(args):
 
     result = {
         "session_type": session_type,
-        "mode": "multi-ball",
-        "buffer_dir": str(bd),
+        "mode": "global",
         "ball_count": len(balls),
         "in_flight": in_flight,
         "caught": caught,
         "returned": returned,
         "balls": ball_states,
     }
+    if bd:
+        result["buffer_dir"] = str(bd)
     if stale_balls:
         result["stale_balls"] = stale_balls
     print(json.dumps(result))
@@ -279,56 +346,64 @@ def cmd_validate(args):
 
 def cmd_archive(args):
     ball_id = getattr(args, 'ball_id', None)
+    registry = _read_registry()
 
-    if ball_id:
-        # Multi-ball archive — needs buffer discovery
-        bd = _resolve_buffer(args.cwd)
-        registry = _read_registry(bd)
-        if not registry or ball_id not in registry.get("balls", {}):
-            print(json.dumps({"error": f"ball not found: {ball_id}"}))
+    if not ball_id:
+        # Auto-select: find single returned or absorbed ball
+        if registry:
+            returned = _get_balls_by_state(registry, "returned")
+            absorbed = _get_balls_by_state(registry, "absorbed")
+            candidates = returned + absorbed
+            if len(candidates) == 1:
+                ball_id = candidates[0][0]
+            elif len(candidates) > 1:
+                print(json.dumps({
+                    "action": "choose",
+                    "message": "Multiple balls to archive. Which one?",
+                    "candidates": [bid for bid, _ in candidates],
+                }))
+                return
+            else:
+                print(json.dumps({"error": "no balls to archive"}))
+                sys.exit(1)
+        else:
+            print(json.dumps({"error": "no football registry found"}))
             sys.exit(1)
-        ball_path = _ball_file(bd, ball_id)
-        if not ball_path.exists():
-            print(json.dumps({"error": f"ball file not found: {ball_path}"}))
-            sys.exit(1)
-        data = _read_json(ball_path)
-        data["state"] = "absorbed"
-        atomic_write_json(str(ball_path), data)
-        # Update registry
-        registry["balls"][ball_id]["state"] = "absorbed"
-        _write_registry(bd, registry)
-        # Clean up micro file
-        micro = _ball_micro(bd, ball_id)
-        if micro.exists():
-            micro.unlink()
-        print(json.dumps({"archived": ball_id, "file": str(ball_path)}))
-        return
 
-    # Legacy archive — --football path takes priority
-    if args.football:
-        fp = Path(args.football)
-        archive_dir = fp.parent / "footballs"
-    else:
-        bd = _resolve_buffer(args.cwd)
-        fp = _football(bd)
-        archive_dir = _balls_dir(bd)
-    if not fp.exists():
-        print(json.dumps({"error": f"not found: {fp}"}))
+    if not registry or ball_id not in registry.get("balls", {}):
+        print(json.dumps({"error": f"ball not found: {ball_id}"}))
         sys.exit(1)
-    try:
-        with open(fp, encoding='utf-8-sig') as f:
-            data = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        print(json.dumps({"error": f"corrupt football file: {fp}"}))
+
+    ball_path = _ball_file(ball_id)
+    if not ball_path.exists():
+        print(json.dumps({"error": f"ball file not found: {ball_path}"}))
         sys.exit(1)
+
+    data = _read_json(ball_path)
     data["state"] = "absorbed"
+
+    # Move to archive
+    archive_dir = _global_archive()
+    archive_dir.mkdir(parents=True, exist_ok=True)
     desc = data.get("planner_payload", {}).get("thread", {}).get("description", "football")
     date = data.get("thrown_at", datetime.now(timezone.utc).strftime("%Y-%m-%d"))
-    archive_dir.mkdir(exist_ok=True)
-    dest = archive_dir / f"{date}-{_slug(desc)}.json"
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    dest = archive_dir / f"{date}-{_slug(desc)}-{ts}.json"
     atomic_write_json(str(dest), data)
-    fp.unlink()
-    print(json.dumps({"archived_to": str(dest)}))
+
+    # Remove active ball file
+    ball_path.unlink()
+
+    # Update registry — remove from active balls
+    del registry["balls"][ball_id]
+    _write_registry(registry)
+
+    # Clean up micro file
+    micro = _ball_micro(ball_id)
+    if micro.exists():
+        micro.unlink()
+
+    print(json.dumps({"archived": ball_id, "archived_to": str(dest)}))
 
 
 # ---------------------------------------------------------------------------
@@ -343,35 +418,50 @@ def _build_planner_context(bd, args):
         "orientation_fragment": "",
         "dialogue_style": None,
     }
-    hot = _hot(bd)
-    if hot.exists():
-        trunk = _read_json(hot)
-        if trunk == {} or "orientation" not in trunk:
-            print("warning: handoff.json is empty/hollow — planner context will be blank",
-                  file=sys.stderr)
-        o = trunk.get("orientation", {})
-        frags = [o.get("core_insight", ""), o.get("practical_warning", "")]
-        context["orientation_fragment"] = " ".join(f for f in frags if f)
-        context["dialogue_style"] = trunk.get("instance_notes", {}).get("dialogue_style", None)
-        context["relevant_decisions"] = trunk.get("recent_decisions", [])[:3]
+    if bd:
+        hot = _hot(bd)
+        if hot.exists():
+            trunk = _read_json(hot)
+            if trunk == {} or "orientation" not in trunk:
+                print("warning: handoff.json is empty/hollow — planner context will be blank",
+                      file=sys.stderr)
+            o = trunk.get("orientation", {})
+            frags = [o.get("core_insight", ""), o.get("practical_warning", "")]
+            context["orientation_fragment"] = " ".join(f for f in frags if f)
+            context["dialogue_style"] = trunk.get("instance_notes", {}).get("dialogue_style", None)
+            context["relevant_decisions"] = trunk.get("recent_decisions", [])[:3]
     context["alpha_refs"] = json.loads(args.alpha_refs) if args.alpha_refs else []
     return context
 
 
-def _pack_planner_multiball(args, bd, today):
-    """Create a new ball in multi-ball mode."""
-    registry = _read_registry(bd) or {"schema_version": 1, "balls": {}}
+def _pack_planner(args, bd, today):
+    """Create a new ball with project location embedded."""
+    registry = _read_registry() or {"schema_version": 1, "balls": {}}
     thread = json.loads(args.thread) if args.thread else {}
     desc = thread.get("description", "football")
-    ball_id = _generate_ball_id(bd, desc)
+    ball_id = _generate_ball_id(desc)
     target = getattr(args, 'target', 'instance') or 'instance'
+
+    # Resolve project root from buffer dir
+    project_root = ""
+    buffer_dir = ""
+    if bd:
+        buffer_dir = str(bd)
+        # Strip .claude/buffer to get project root
+        bd_str = str(bd).replace('\\', '/')
+        for suffix in ['/.claude/buffer/', '/.claude/buffer']:
+            if bd_str.endswith(suffix):
+                project_root = bd_str[:-len(suffix)]
+                if '\\' in str(bd):
+                    project_root = project_root.replace('/', '\\')
+                break
 
     payload = {"thread": thread}
     if args.type == "heavy":
         payload["context"] = _build_planner_context(bd, args)
 
     ball_data = {
-        "schema_version": 1,
+        "schema_version": 2,
         "mode": "football",
         "ball_id": ball_id,
         "state": "in_flight",
@@ -380,34 +470,38 @@ def _pack_planner_multiball(args, bd, today):
         "thrown_by": "planner",
         "throw_count": 1,
         "thrown_at": today,
+        "project_root": project_root,
+        "buffer_dir": buffer_dir,
         "planner_payload": payload,
         "worker_output": {},
     }
 
-    balls_dir = _balls_dir(bd)
-    balls_dir.mkdir(exist_ok=True)
-    atomic_write_json(str(_ball_file(bd, ball_id)), ball_data)
+    _global_footballs().mkdir(parents=True, exist_ok=True)
+    atomic_write_json(str(_ball_file(ball_id)), ball_data)
 
-    # Update registry
+    # Update global registry
     registry["balls"][ball_id] = {
         "state": "in_flight",
         "target": target,
         "thrown_at": today,
-        "file": f"footballs/{ball_id}.json",
+        "project_root": project_root,
     }
-    _write_registry(bd, registry)
-    print(json.dumps({"packed": True, "ball_id": ball_id, "mode": "multi-ball"}))
+    _write_registry(registry)
+    print(json.dumps({
+        "packed": True, "ball_id": ball_id,
+        "project_root": project_root, "buffer_dir": buffer_dir,
+    }))
 
 
-def _pack_worker_multiball(args, bd, today):
-    """Worker return for a specific ball."""
+def _pack_worker(args, today):
+    """Worker return — packs output onto the ball in global storage."""
     ball_id = getattr(args, 'ball_id', None)
     if not ball_id:
         # Auto-detect: find the single caught ball with a micro file
-        registry = _read_registry(bd) or {}
+        registry = _read_registry() or {}
         caught = _get_balls_by_state(registry, "caught")
         active = [(bid, info) for bid, info in caught
-                  if _ball_micro(bd, bid).exists()]
+                  if _ball_micro(bid).exists()]
         if len(active) == 1:
             ball_id = active[0][0]
         elif len(active) == 0:
@@ -420,8 +514,8 @@ def _pack_worker_multiball(args, bd, today):
             }))
             sys.exit(1)
 
-    ball_path = _ball_file(bd, ball_id)
-    micro_path = _ball_micro(bd, ball_id)
+    ball_path = _ball_file(ball_id)
+    micro_path = _ball_micro(ball_id)
     existing = _read_json(ball_path)
     micro = _read_json(micro_path)
 
@@ -456,92 +550,27 @@ def _pack_worker_multiball(args, bd, today):
     })
     atomic_write_json(str(ball_path), existing)
 
-    # Update registry
-    registry = _read_registry(bd)
+    # Update global registry
+    registry = _read_registry()
     if registry and ball_id in registry.get("balls", {}):
         registry["balls"][ball_id]["state"] = "returned"
-        _write_registry(bd, registry)
+        _write_registry(registry)
 
-    # Clean up micro file so status doesn't report stale worker state
+    # Clean up micro file
     if micro_path.exists():
         micro_path.unlink()
 
     print(json.dumps({"packed": True, "ball_id": ball_id, "throw_count": throw_count}))
 
 
-def _pack_planner_legacy(args, bd, fp, throw_count, today):
-    """Legacy single-ball planner pack."""
-    existing = _read_json(fp)
-    thread = json.loads(args.thread) if args.thread else {}
-    payload = {"thread": thread}
-    if args.type == "heavy":
-        payload["context"] = _build_planner_context(bd, args)
-    data = {**existing,
-            "schema_version": 1, "mode": "football", "state": "in_flight",
-            "throw_type": args.type, "thrown_by": "planner",
-            "throw_count": throw_count, "thrown_at": today,
-            "planner_payload": payload,
-            "worker_output": existing.get("worker_output", {})}
-    atomic_write_json(str(fp), data)
-    print(json.dumps({"packed": True, "throw_count": throw_count, "mode": "legacy"}))
-
-
-def _pack_worker_legacy(args, bd, fp, throw_count, today):
-    """Legacy single-ball worker pack."""
-    micro = _read_json(_micro(bd))
-    if micro == {}:
-        print("warning: football-micro.json is empty — worker output may be incomplete",
-              file=sys.stderr)
-    existing = _read_json(fp)
-    if args.type == "heavy":
-        worker_output = {
-            "completed": micro.get("completed_tasks", []),
-            "changes_made": micro.get("decisions_made", []),
-            "surprised_by": [],
-            "next_action": micro.get("active_task", ""),
-            "flagged_for_trunk": micro.get("flagged_for_trunk", []),
-        }
-    else:
-        worker_output = {
-            "completed": json.loads(args.completed) if args.completed else [],
-            "changes_made": json.loads(args.changes) if args.changes else [],
-            "surprised_by": [],
-            "next_action": args.next_action or "",
-            "flagged_for_trunk": micro.get("flagged_for_trunk", []),
-        }
-    existing.update({"throw_count": throw_count, "thrown_by": "worker",
-                     "throw_type": args.type, "thrown_at": today,
-                     "state": "returned", "worker_output": worker_output})
-    atomic_write_json(str(fp), existing)
-    print(json.dumps({"packed": True, "throw_count": throw_count, "mode": "legacy"}))
-
-
 def cmd_pack(args):
-    bd = _resolve_buffer(args.cwd)
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    multiball = _is_multiball(bd) or getattr(args, 'multiball', False)
 
-    if multiball:
-        if args.side == "planner":
-            _pack_planner_multiball(args, bd, today)
-        else:
-            _pack_worker_multiball(args, bd, today)
+    if args.side == "planner":
+        bd = _resolve_buffer_or_exit(args.cwd)
+        _pack_planner(args, bd, today)
     else:
-        # Legacy single-ball
-        fp = _football(bd)
-        existing_count = 0
-        if fp.exists():
-            try:
-                with open(fp, encoding='utf-8-sig') as f:
-                    existing_count = json.load(f).get("throw_count", 0)
-            except (json.JSONDecodeError, OSError):
-                print("warning: football.json corrupt — throw_count reset to 0",
-                      file=sys.stderr)
-        throw_count = existing_count + 1
-        if args.side == "planner":
-            _pack_planner_legacy(args, bd, fp, throw_count, today)
-        else:
-            _pack_worker_legacy(args, bd, fp, throw_count, today)
+        _pack_worker(args, today)
 
 
 # ---------------------------------------------------------------------------
@@ -549,55 +578,32 @@ def cmd_pack(args):
 # ---------------------------------------------------------------------------
 
 def cmd_unpack(args):
-    # Legacy unpack: --football path takes priority (no buffer discovery needed)
-    if args.football:
-        fp = Path(args.football)
-        if not fp.exists():
-            print(json.dumps({"error": f"not found: {fp}"}))
-            sys.exit(1)
-        try:
-            with open(fp, encoding='utf-8-sig') as f:
-                data = json.load(f)
-            try:
-                check_schema_version(data, max_supported=1, path=str(fp))
-            except SchemaVersionError as e:
-                print(f"warning: {e}", file=sys.stderr)
-            print(json.dumps(data, indent=2))
-        except (json.JSONDecodeError, OSError) as e:
-            print(json.dumps({"error": f"corrupt football file: {e}"}))
-            sys.exit(1)
-        return
-
-    # Buffer discovery needed for multi-ball or legacy fallback
-    bd = _resolve_buffer(args.cwd)
+    """Unpack a ball from global storage."""
     ball_id = getattr(args, 'ball_id', None)
-
-    if ball_id:
-        # Multi-ball unpack
-        ball_path = _ball_file(bd, ball_id)
-        if not ball_path.exists():
-            print(json.dumps({"error": f"ball not found: {ball_id}"}))
+    if not ball_id:
+        # Auto-select: find single returned ball
+        registry = _read_registry() or {}
+        returned = _get_balls_by_state(registry, "returned")
+        if len(returned) == 1:
+            ball_id = returned[0][0]
+        elif len(returned) > 1:
+            print(json.dumps({
+                "action": "choose",
+                "message": "Multiple returned balls. Which one?",
+                "returned": [{"ball_id": bid, "thrown_at": info.get("thrown_at")}
+                             for bid, info in returned],
+            }))
+            return
+        else:
+            print(json.dumps({"error": "no returned balls to unpack"}))
             sys.exit(1)
-        data = _read_json(ball_path)
-        print(json.dumps(data, indent=2))
-        return
 
-    # Legacy fallback: unpack football.json from buffer dir
-    fp = _football(bd)
-    if not fp.exists():
-        print(json.dumps({"error": f"not found: {fp}"}))
+    ball_path = _ball_file(ball_id)
+    if not ball_path.exists():
+        print(json.dumps({"error": f"ball not found: {ball_id}"}))
         sys.exit(1)
-    try:
-        with open(fp, encoding='utf-8-sig') as f:
-            data = json.load(f)
-        try:
-            check_schema_version(data, max_supported=1, path=str(fp))
-        except SchemaVersionError as e:
-            print(f"warning: {e}", file=sys.stderr)
-        print(json.dumps(data, indent=2))
-    except (json.JSONDecodeError, OSError) as e:
-        print(json.dumps({"error": f"corrupt football file: {e}"}))
-        sys.exit(1)
+    data = _read_json(ball_path)
+    print(json.dumps(data, indent=2))
 
 
 # ---------------------------------------------------------------------------
@@ -605,19 +611,17 @@ def cmd_unpack(args):
 # ---------------------------------------------------------------------------
 
 def cmd_catch(args):
-    """Catch a ball — returns ball data for the skill to orient from.
+    """Catch a ball from global storage.
 
     If --ball-id is given, catches that specific ball.
     If omitted, auto-selects if exactly one in_flight ball exists.
     If multiple are in_flight, returns the list for the skill to prompt.
     """
-    bd = _resolve_buffer(args.cwd)
-    registry = _read_registry(bd)
+    registry = _read_registry()
 
     if registry is None:
-        # Legacy mode — no catch command needed, skill reads football.json directly
-        print(json.dumps({"mode": "legacy", "message": "use legacy catch flow"}))
-        return
+        print(json.dumps({"error": "no footballs found — run /buffer:throw first"}))
+        sys.exit(1)
 
     balls = registry.get("balls", {})
     ball_id = getattr(args, 'ball_id', None)
@@ -630,14 +634,14 @@ def cmd_catch(args):
         elif len(in_flight) == 1:
             ball_id = in_flight[0][0]
         else:
-            # Multiple in flight — return list for skill to prompt user
             print(json.dumps({
                 "action": "choose",
                 "message": "Multiple balls in flight. Which one?",
                 "in_flight": [
                     {"ball_id": bid, "thrown_at": info.get("thrown_at"),
                      "target": info.get("target"),
-                     "description": _read_json(_ball_file(bd, bid))
+                     "project_root": info.get("project_root", ""),
+                     "description": _read_json(_ball_file(bid))
                         .get("planner_payload", {}).get("thread", {})
                         .get("description", "?")}
                     for bid, info in in_flight
@@ -656,7 +660,7 @@ def cmd_catch(args):
         sys.exit(1)
 
     # Read ball data
-    ball_path = _ball_file(bd, ball_id)
+    ball_path = _ball_file(ball_id)
     ball_data = _read_json(ball_path)
     if not ball_data:
         print(json.dumps({"error": f"ball file missing or corrupt: {ball_path}"}))
@@ -668,7 +672,7 @@ def cmd_catch(args):
 
     # Update registry
     registry["balls"][ball_id]["state"] = "caught"
-    _write_registry(bd, registry)
+    _write_registry(registry)
 
     print(json.dumps({
         "caught": True,
@@ -676,6 +680,8 @@ def cmd_catch(args):
         "throw_type": ball_data.get("throw_type"),
         "throw_count": ball_data.get("throw_count"),
         "has_prior_progress": "prior_worker_progress" in ball_data,
+        "project_root": ball_data.get("project_root", ""),
+        "buffer_dir": ball_data.get("buffer_dir", ""),
         "planner_payload": ball_data.get("planner_payload", {}),
     }))
 
@@ -687,22 +693,16 @@ def cmd_catch(args):
 def cmd_intercept(args):
     """Intercept a caught ball — pack partial progress back onto the ball
     and set it in_flight for a new worker to catch.
-
-    Used when a worker's context window caps out or the user wants to
-    redirect the ball to a different worker.
     """
-    bd = _resolve_buffer(args.cwd)
-    registry = _read_registry(bd)
-
+    registry = _read_registry()
     if registry is None:
-        print(json.dumps({"error": "intercept requires multi-ball mode"}))
+        print(json.dumps({"error": "no football registry found"}))
         sys.exit(1)
 
     ball_id = getattr(args, 'ball_id', None)
     balls = registry.get("balls", {})
 
     if not ball_id:
-        # Auto-select if exactly one ball is caught
         caught = _get_balls_by_state(registry, "caught")
         if len(caught) == 0:
             print(json.dumps({"error": "no caught balls to intercept"}))
@@ -715,7 +715,7 @@ def cmd_intercept(args):
                 "message": "Multiple caught balls. Which one to intercept?",
                 "caught": [
                     {"ball_id": bid, "thrown_at": info.get("thrown_at"),
-                     "description": _read_json(_ball_file(bd, bid))
+                     "description": _read_json(_ball_file(bid))
                         .get("planner_payload", {}).get("thread", {})
                         .get("description", "?")}
                     for bid, info in caught
@@ -734,12 +734,11 @@ def cmd_intercept(args):
         }))
         sys.exit(1)
 
-    # Read ball data
-    ball_path = _ball_file(bd, ball_id)
+    ball_path = _ball_file(ball_id)
     ball_data = _read_json(ball_path)
 
     # Read micro file for partial progress
-    micro_path = _ball_micro(bd, ball_id)
+    micro_path = _ball_micro(ball_id)
     micro = _read_json(micro_path)
     prior_progress = None
 
@@ -752,24 +751,19 @@ def cmd_intercept(args):
             "flagged_for_trunk": micro.get("flagged_for_trunk", []),
             "catch_count": micro.get("catch_count", 0),
         }
-        # Append to any existing prior progress chain
         existing_prior = ball_data.get("prior_worker_progress", [])
         if isinstance(existing_prior, dict):
-            existing_prior = [existing_prior]  # normalize legacy single-intercept
+            existing_prior = [existing_prior]
         existing_prior.append(prior_progress)
         ball_data["prior_worker_progress"] = existing_prior
-
-        # Clean up micro file
         micro_path.unlink()
 
-    # Set back to in_flight
     ball_data["state"] = "in_flight"
     ball_data["intercepted"] = True
     atomic_write_json(str(ball_path), ball_data)
 
-    # Update registry
     registry["balls"][ball_id]["state"] = "in_flight"
-    _write_registry(bd, registry)
+    _write_registry(registry)
 
     print(json.dumps({
         "intercepted": True,
@@ -784,25 +778,19 @@ def cmd_intercept(args):
 # ---------------------------------------------------------------------------
 
 def cmd_flag(args):
-    bd = _resolve_buffer(args.cwd)
+    """Flag an item for trunk carry-over on the active micro file."""
     ball_id = getattr(args, 'ball_id', None)
 
-    if ball_id:
-        # Multi-ball flag
-        micro_path = _ball_micro(bd, ball_id)
-    elif _is_multiball(bd):
+    if not ball_id:
         # Auto-detect: find the single caught ball with a micro file
-        registry = _read_registry(bd)
+        registry = _read_registry() or {}
         caught = _get_balls_by_state(registry, "caught")
         active = [(bid, info) for bid, info in caught
-                  if _ball_micro(bd, bid).exists()]
+                  if _ball_micro(bid).exists()]
         if len(active) == 1:
             ball_id = active[0][0]
-            micro_path = _ball_micro(bd, ball_id)
         elif len(active) == 0:
-            print(json.dumps({
-                "error": "no caught balls with active micro files — specify --ball-id",
-            }))
+            print(json.dumps({"error": "no active worker session found — specify --ball-id"}))
             sys.exit(1)
         else:
             print(json.dumps({
@@ -810,10 +798,8 @@ def cmd_flag(args):
                 "active_balls": [bid for bid, _ in active],
             }))
             sys.exit(1)
-    else:
-        # Legacy
-        micro_path = _micro(bd)
 
+    micro_path = _ball_micro(ball_id)
     micro = _read_json(micro_path)
     micro.setdefault("flagged_for_trunk", []).append({
         "type": args.type_flag,
@@ -821,7 +807,7 @@ def cmd_flag(args):
         "rationale": args.rationale,
     })
     atomic_write_json(str(micro_path), micro)
-    print(json.dumps({"flagged": True, "total_flags": len(micro["flagged_for_trunk"])}))
+    print(json.dumps({"flagged": True, "ball_id": ball_id, "total_flags": len(micro["flagged_for_trunk"])}))
 
 
 # ---------------------------------------------------------------------------
@@ -829,70 +815,62 @@ def cmd_flag(args):
 # ---------------------------------------------------------------------------
 
 def main():
-    parser = argparse.ArgumentParser(description="buffer:football lifecycle (multi-ball)")
+    parser = argparse.ArgumentParser(
+        description="buffer:football lifecycle — global storage at ~/.claude/buffer/footballs/")
     sub = parser.add_subparsers(dest="command", required=True)
 
     # --- status ---
-    p = sub.add_parser("status")
-    p.add_argument("--cwd")
+    p = sub.add_parser("status", help="Show football status (global registry + optional project context)")
+    p.add_argument("--cwd", help="Working directory for project buffer detection (optional)")
     p.set_defaults(func=cmd_status)
 
     # --- validate ---
-    p = sub.add_parser("validate")
-    p.add_argument("--football", required=True)
+    p = sub.add_parser("validate", help="Validate a football file against schema")
+    p.add_argument("--football", required=True, help="Path to football JSON file")
     p.set_defaults(func=cmd_validate)
 
     # --- archive ---
-    p = sub.add_parser("archive")
-    p.add_argument("--football", default=None)
+    p = sub.add_parser("archive", help="Archive an absorbed/returned ball")
     p.add_argument("--ball-id", dest="ball_id", default=None)
-    p.add_argument("--cwd")
     p.set_defaults(func=cmd_archive)
 
     # --- pack (throw) ---
-    p = sub.add_parser("pack")
+    p = sub.add_parser("pack", help="Pack a football (planner throw or worker return)")
     p.add_argument("--side", choices=["planner", "worker"], required=True)
     p.add_argument("--type", choices=["heavy", "lite"], required=True)
-    p.add_argument("--cwd")
-    p.add_argument("--thread")
-    p.add_argument("--alpha-refs", dest="alpha_refs")
-    p.add_argument("--completed")
-    p.add_argument("--changes")
-    p.add_argument("--next-action", dest="next_action")
-    p.add_argument("--ball-id", dest="ball_id", default=None)
+    p.add_argument("--cwd", help="Working directory (planner needs this to find project buffer)")
+    p.add_argument("--thread", help="Thread JSON (planner)")
+    p.add_argument("--alpha-refs", dest="alpha_refs", help="Alpha refs JSON array (planner heavy)")
+    p.add_argument("--completed", help="Completed items JSON array (worker lite)")
+    p.add_argument("--changes", help="Changes JSON array (worker lite)")
+    p.add_argument("--next-action", dest="next_action", help="Next action string (worker lite)")
+    p.add_argument("--ball-id", dest="ball_id", default=None, help="Ball ID (worker return)")
     p.add_argument("--target", choices=["instance", "subagent"], default="instance")
-    p.add_argument("--multiball", action="store_true",
-                   help="Force multi-ball mode (creates registry if needed)")
     p.set_defaults(func=cmd_pack)
 
     # --- unpack ---
-    p = sub.add_parser("unpack")
-    p.add_argument("--football", default=None)
+    p = sub.add_parser("unpack", help="Unpack a returned ball")
     p.add_argument("--ball-id", dest="ball_id", default=None)
-    p.add_argument("--cwd")
     p.set_defaults(func=cmd_unpack)
 
     # --- catch ---
-    p = sub.add_parser("catch")
+    p = sub.add_parser("catch", help="Catch an in-flight ball (worker side)")
     p.add_argument("--ball-id", dest="ball_id", default=None)
-    p.add_argument("--cwd")
     p.set_defaults(func=cmd_catch)
 
     # --- intercept ---
-    p = sub.add_parser("intercept")
+    p = sub.add_parser("intercept", help="Intercept a caught ball (redirect to new worker)")
     p.add_argument("--ball-id", dest="ball_id", default=None)
-    p.add_argument("--cwd")
     p.set_defaults(func=cmd_intercept)
 
     # --- flag ---
-    p = sub.add_parser("flag")
+    p = sub.add_parser("flag", help="Flag an item for trunk carry-over")
     p.add_argument("--type", dest="type_flag",
                    choices=["alpha_entry", "forward_note", "decision", "open_thread"],
                    required=True)
     p.add_argument("--content", required=True)
     p.add_argument("--rationale", required=True)
     p.add_argument("--ball-id", dest="ball_id", default=None)
-    p.add_argument("--cwd")
     p.set_defaults(func=cmd_flag)
 
     args = parser.parse_args()

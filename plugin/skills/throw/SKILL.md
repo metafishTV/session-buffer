@@ -5,7 +5,7 @@ description: Pack and throw a football. Planner side packs for the worker; worke
 
 # /buffer:throw
 
-Packs the football for the other session to catch. Behavior depends on session type — detected automatically. Works identically for single-ball and multi-ball — the script handles both.
+Packs the football for the other session to catch. Behavior depends on session type — detected automatically. Footballs are stored globally at `~/.claude/buffer/footballs/`. Each ball carries the project location so workers can find it.
 
 ---
 
@@ -20,7 +20,7 @@ python plugin/scripts/buffer_football.py status
 - `"ambiguous"` → **⚠ MANDATORY POPUP** via `AskUserQuestion`: "Both trunk and micro-hot-layer detected. Are you the planner or the worker?" If planner, offer to absorb the stale micro-hot-layer before proceeding.
 - `"unknown"` → STOP: "No buffer found. Run /buffer:on or /buffer:catch first."
 
-For multi-ball: check `in_flight` array in status output to see if other balls are already out.
+Check `in_flight` array in status output to see if other balls are already out.
 
 ---
 
@@ -62,12 +62,10 @@ Format as JSON array: `["w:152"]` or `[]`.
 
 ### Step 5P: Pack
 
-The `pack` command auto-detects multi-ball mode (if a registry exists) or creates one with `--multiball`. For a first throw, always use `--multiball` to enable parallel workers from the start.
-
 **Heavy:**
 ```bash
 python plugin/scripts/buffer_football.py pack \
-  --side planner --type heavy --multiball \
+  --side planner --type heavy \
   --thread '<THREAD_JSON>' \
   --alpha-refs '<ALPHA_REFS_JSON>'
 ```
@@ -75,7 +73,7 @@ python plugin/scripts/buffer_football.py pack \
 **Lite:**
 ```bash
 python plugin/scripts/buffer_football.py pack \
-  --side planner --type lite --multiball \
+  --side planner --type lite \
   --thread '<THREAD_JSON>'
 ```
 
@@ -115,7 +113,7 @@ Ask:
 
 ### Step 4W: Pack return
 
-Determine the `ball_id` from the micro-hot-layer filename (`football-micro-<ball_id>.json`) or from `football.json` in legacy mode.
+Determine the `ball_id` from the micro-hot-layer filename (`micro-<ball_id>.json` in `~/.claude/buffer/footballs/`).
 
 **Heavy:**
 ```bash
@@ -131,7 +129,7 @@ python plugin/scripts/buffer_football.py pack \
   --next-action '<STRING>'
 ```
 
-(For legacy single-ball, omit `--ball-id` — the script falls back to `football.json`.)
+(If only one caught ball exists, `--ball-id` can be omitted — the script auto-detects.)
 
 ### Step 5W: Confirm
 

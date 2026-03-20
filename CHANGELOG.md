@@ -14,10 +14,14 @@ All notable changes to buffer are documented here.
 - **`/buffer:off` SKILL.md rewrite** — 467→276 lines (41% reduction), zero features removed. Sequential steps merged into parallel batches, First-Run Detection deduped (references on.md instead of restating), compose steps (active work + decisions + threads) unified, infrastructure writes (registry, compaction directives, session markers, MEMORY sync) parallelized.
 - **Quicksave/Targeted briefing** — both modes now write briefing.md (was previously skipped).
 
-### Football skill fix — multi-ball support
-- **`/buffer:catch` rewrite** — skill now uses `buffer_football.py catch` command instead of manual validate+unpack+state-write. Handles single-ball and multi-ball transparently (ball selection, validation, state transition in one call). Removed separate validate/unpack steps, hardcoded `football.json` paths, and manual state writes that broke in multi-ball mode.
-- **`/buffer:throw` rewrite** — skill now uses `--multiball` flag by default and passes `--ball-id` for worker returns. Removed hardcoded `football.json` validate calls. Planner confirms with ball ID. Worker determines ball_id from micro-hot-layer filename.
-- Both skills streamlined: catch 157→119 lines, throw 145→107 lines.
+### Football system — global storage refactor
+- **Global football storage** — footballs now live at `~/.claude/buffer/footballs/` with registry at `~/.claude/buffer/football-registry.json`. No longer stored inside project `.claude/buffer/`. Each ball carries `project_root` and `buffer_dir` so workers find the project regardless of cwd.
+- **Unified system** — removed legacy single-ball vs multi-ball mode split. One system, one code path. All `_legacy_*` functions and `--multiball` flag removed.
+- **Auto-migration** — `status` command detects project-local football files and migrates them to global storage on first run.
+- **`/buffer:catch` + `/buffer:throw` skills** updated — no more hardcoded project paths, no legacy fallbacks, no mode detection. Skills reference global storage directly.
+- **`cmd_catch`** no longer requires project buffer discovery — reads from global registry. Returns `project_root` + `buffer_dir` from ball data.
+- **`cmd_status`** works without a project buffer — global registry is primary, project context is optional enhancement.
+- Archive moved to `~/.claude/buffer/football-archive/`.
 
 ## [buffer 3.7.0 / distill 3.1.0] - 2026-03-19
 

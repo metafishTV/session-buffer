@@ -5,7 +5,7 @@ description: Catch a thrown football. Worker side initializes micro-session; pla
 
 # /buffer:catch
 
-Unpacks the football and acts. Behavior depends on the football's current state, detected automatically. Works identically for single-ball and multi-ball — the script handles both.
+Unpacks the football and acts. Behavior depends on the football's current state, detected automatically. Footballs live globally at `~/.claude/buffer/footballs/` — no project buffer discovery needed to catch.
 
 ---
 
@@ -25,7 +25,7 @@ The output includes `mode` (`"legacy"` or `"multi-ball"`) and `session_type`. Ro
 | `"ambiguous"` | Both trunk and micro detected | **⚠ MANDATORY POPUP**: "Both trunk and micro-hot-layer detected. Are you the planner or the worker?" Route accordingly. |
 | `"unknown"` / no balls | Nothing found | STOP: "No football found. Ask the planner to run /buffer:throw first." |
 
-For multi-ball: check `in_flight`, `caught`, `returned` arrays and `stale_balls` in the status output instead of `football_state`.
+Check `in_flight`, `caught`, `returned` arrays and `stale_balls` in the status output.
 
 ---
 
@@ -47,7 +47,7 @@ Note `throw_count` from the response — if `1`, heavy catch (first task). If `>
 
 ### Step 3W (heavy — throw_count == 1): Initialize micro-hot-layer
 
-Create the micro-hot-layer file. For multi-ball: `.claude/buffer/football-micro-<ball_id>.json`. For legacy: `.claude/buffer/football-micro.json`.
+Create the micro-hot-layer file at `~/.claude/buffer/footballs/micro-<ball_id>.json`.
 
 ```json
 {
@@ -103,7 +103,7 @@ python plugin/scripts/buffer_football.py flag \
   --content '<JSON>' \
   --rationale '<why this warrants verbatim carry-over>'
 ```
-For multi-ball, add `--ball-id <id>`.
+Add `--ball-id <id>` if multiple balls are active.
 
 ---
 
@@ -114,7 +114,6 @@ For multi-ball, add `--ball-id <id>`.
 ```bash
 python plugin/scripts/buffer_football.py unpack --ball-id <ball_id>
 ```
-(For legacy single-ball, omit `--ball-id` — the script falls back to `football.json`.)
 
 If error → show to user, STOP.
 
@@ -151,7 +150,6 @@ Update `.claude/buffer/handoff.json`:
 ```bash
 python plugin/scripts/buffer_football.py archive --ball-id <ball_id>
 ```
-(For legacy, use `--football .claude/buffer/football.json`.)
 
 Read `handoff.json`. Set `"football_in_flight": false`. Write back.
 
