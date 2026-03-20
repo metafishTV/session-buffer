@@ -34,17 +34,19 @@ Buffer plugin detected = ALL of:
 
 ## Full Integration Mode
 
-### Step 0: Write Distill-Active Marker
+### Step 0: Verify Distill-Active Marker
 
-Before any buffer writes, set the marker that prevents the live matching hook from firing:
+Before any buffer writes, verify the marker was created by the Skill invocation hook:
 
 ```bash
-echo "active" > .claude/buffer/.distill_active
+grep -q "^SKILL_INVOKED:" .claude/buffer/.distill_active 2>/dev/null || grep -q "^SKILL_INVOKED:" .distill_active 2>/dev/null
 ```
 
-MUST be written before Step 2 and removed in cleanup. If integration fails mid-way, cleanup still removes it.
+If neither marker file contains the `SKILL_INVOKED:` prefix, abort with: "Integration requires skill invocation. Run /distill to create the pipeline marker."
 
-**Crash safety**: The sigma hook has a 4-hour TTL on this marker. If the skill crashes and the marker is not cleaned up, sigma will auto-recover after 4 hours. However, you MUST still attempt cleanup on any failure path — run `rm -f .claude/buffer/.distill_active` before reporting errors to the user. The TTL is a last-resort safety net, not a substitute for explicit cleanup.
+Do NOT create the marker manually — it is written automatically by the PreToolUse:Skill hook when any `distill:*` skill is invoked via the Skill tool.
+
+**Crash safety**: The sigma hook has a 4-hour TTL on this marker. If the skill crashes and the marker is not cleaned up, sigma will auto-recover after 4 hours. However, you MUST still attempt cleanup on any failure path — run `rm -f .claude/buffer/.distill_active .distill_active` before reporting errors to the user. The TTL is a last-resort safety net, not a substitute for explicit cleanup.
 
 ### Step 1: INDEX.md Update
 
@@ -376,7 +378,7 @@ Forward notes health: run `python distill_forward_notes.py health --notes [path]
 ### Step 5: Remove Marker and Validate
 
 ```bash
-rm -f .claude/buffer/.distill_active
+rm -f .claude/buffer/.distill_active .distill_active
 python <buffer_scripts>/buffer_manager.py alpha-validate --buffer-dir .claude/buffer/
 ```
 
@@ -676,13 +678,13 @@ Delete all temporary files created during this distillation:
 | `_distill_scan.json` | distill_scan.py output | Yes (PDF sources) |
 | `_distill_text.txt` | distill_extract.py output | Yes (PDF sources) |
 | `_manifest.json` | distill_figures.py output | Only if figures detected |
-| `.claude/buffer/.distill_active` | integration marker | Yes (if buffer exists) |
+| `.claude/buffer/.distill_active` or `.distill_active` | integration marker (both locations) | Yes (if buffer exists) |
 | `.claude/buffer/.distill_stats` | extract + analyze stats | Yes (if buffer exists) |
 
 Cleanup command:
 
 ```bash
-rm -f _distill_scan.json _distill_text.txt _manifest.json .claude/buffer/.distill_active .claude/buffer/.distill_stats
+rm -f _distill_scan.json _distill_text.txt _manifest.json .claude/buffer/.distill_active .distill_active .claude/buffer/.distill_stats
 ```
 
 The bundled scripts in the skills directory are permanent -- do NOT delete them. Only their output files are temporary.
