@@ -114,6 +114,9 @@ def find_buffer_dir(cwd, registry_path=None):
     for _name, proj in registry.get('projects', {}).items():
         repo_root = proj.get('repo_root', '')
         buffer_path = proj.get('buffer_path', '')
+        # Infer repo_root from buffer_path if missing
+        if not repo_root and buffer_path:
+            repo_root = _infer_repo_root(buffer_path)
         if repo_root and (match_cwd_to_project(cwd, repo_root)
                           or match_cwd_to_project(repo_root, cwd)):
             if os.path.isdir(buffer_path) and os.path.isfile(
