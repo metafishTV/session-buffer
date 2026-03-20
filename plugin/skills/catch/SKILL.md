@@ -23,7 +23,8 @@ Route based on `session_type` (derived from ball states, not trunk):
 
 | session_type | Meaning | Route |
 |---|---|---|
-| `"worker"` | Ball(s) in_flight or actively caught | Worker Catch Branch |
+| `"worker"` | Actively working on a caught ball (micro file exists) | Worker Catch Branch |
+| `"has_in_flight"` | Ball(s) in flight, available to catch | Worker Catch Branch |
 | `"planner"` | Ball(s) returned | Planner Absorb Branch |
 | `"stale_worker"` | Ball caught but no micro file | **Stale check**: "A football was caught but never worked on. Absorb partial progress?" If yes → Planner Absorb. If no → STOP. |
 | `"idle"` | No actionable balls | STOP: "No football in flight. Run /buffer:throw first." |

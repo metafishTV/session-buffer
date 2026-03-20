@@ -2,6 +2,13 @@
 
 All notable changes to buffer are documented here.
 
+## [buffer 3.8.1] - 2026-03-20
+
+### Football registry self-heal + session identity fixes
+- **Registry self-heal** — `_read_registry()` now scans `~/.claude/buffer/footballs/*.json` on disk and reconciles with the registry. Ball files present on disk but missing from the registry are automatically added. Fixes balls thrown by older plugin versions (pre-registry) or failed writes where the ball file was created but registry update failed. Emits a stderr diagnostic when self-healing occurs.
+- **Session type from ball state only** — `cmd_status()` no longer uses trunk/CWD presence to infer session identity. New `"has_in_flight"` session type replaces the previous assumption that in-flight balls imply a worker session (the planner who threw them sees the same state). Only a micro file definitively identifies a worker.
+- **`/buffer:catch` skill updated** — routing table now includes `"has_in_flight"` alongside `"worker"` for the Worker Catch Branch.
+
 ## [buffer 3.8.0] - 2026-03-19
 
 ### Startup pipeline streamlining

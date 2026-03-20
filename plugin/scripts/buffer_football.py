@@ -105,11 +105,49 @@ def _read_json(path):
 
 
 def _read_registry():
-    """Read the global football registry. Returns None if no registry exists."""
+    """Read the global football registry, self-healing from ball files if needed.
+
+    If the registry is missing or empty but ball files exist on disk,
+    rebuilds the registry from the ball files. This handles:
+    - Balls thrown by older plugin versions that predated the registry
+    - Failed writes where the ball file was created but registry update failed
+    - Any other registry/ball-file desync
+    """
     rp = _global_registry()
-    if not rp.exists():
-        return None
-    return _read_json(rp)
+    registry = _read_json(rp) if rp.exists() else None
+
+    # Self-heal: scan ball files on disk and reconcile with registry
+    balls_dir = _global_footballs()
+    if balls_dir.exists():
+        disk_balls = {}
+        for f in balls_dir.iterdir():
+            if f.suffix == '.json' and not f.name.startswith('micro-'):
+                ball_id = f.stem
+                disk_balls[ball_id] = f
+
+        if disk_balls:
+            registry_balls = registry.get("balls", {}) if registry else {}
+            missing = set(disk_balls.keys()) - set(registry_balls.keys())
+
+            if missing:
+                if registry is None:
+                    registry = {"schema_version": 1, "balls": {}}
+                for ball_id in missing:
+                    data = _read_json(disk_balls[ball_id])
+                    if data and data.get("mode") == "football":
+                        registry.setdefault("balls", {})[ball_id] = {
+                            "state": data.get("state", "unknown"),
+                            "target": data.get("target", "instance"),
+                            "thrown_at": data.get("thrown_at", ""),
+                            "project_root": data.get("project_root", ""),
+                        }
+                if missing:
+                    _write_registry(registry)
+                    print(f"Registry self-healed: added {len(missing)} ball(s) "
+                          f"from disk ({', '.join(sorted(missing))})",
+                          file=sys.stderr)
+
+    return registry
 
 
 def _write_registry(registry):
@@ -288,16 +326,18 @@ def cmd_status(args):
     caught = [bid for bid, s in ball_states.items() if s["state"] == "caught"]
     returned = [bid for bid, s in ball_states.items() if s["state"] == "returned"]
 
-    # Session type from BALL STATE, not trunk presence.
-    # Trunk existence is irrelevant — every session on this machine can see it.
+    # Session type derived strictly from ball state — no trunk/CWD inference.
+    # Only states that are unambiguous get a definitive label.
     if active_micros:
-        session_type = "worker"        # actively working on a caught ball
-    elif returned:
-        session_type = "planner"       # balls came back, ready to absorb
-    elif in_flight:
-        session_type = "worker"        # balls available to catch
+        session_type = "worker"        # micro file = definitively a worker in progress
     elif caught and not active_micros:
-        session_type = "stale_worker"  # caught but no micro — orphaned
+        session_type = "stale_worker"  # caught but no micro — orphaned catch
+    elif returned:
+        session_type = "planner"       # returned balls need planner review
+    elif in_flight:
+        # In-flight balls are visible to ANY session — could be the planner
+        # who threw them or a new worker. Don't assume; let the skill route.
+        session_type = "has_in_flight"
     else:
         session_type = "idle"          # no actionable balls
 
