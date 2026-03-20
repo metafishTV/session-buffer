@@ -29,30 +29,56 @@ if sys.platform == 'win32' and __name__ == '__main__':
 # Utilities
 # ---------------------------------------------------------------------------
 
+_buffer_utils_mod = None
+_read_model_tier = None
+
+def _load_buffer_utils():
+    global _buffer_utils_mod, _read_model_tier
+    if _buffer_utils_mod is not None:
+        return _buffer_utils_mod
+    try:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'buffer_utils', os.path.join(script_dir, 'buffer_utils.py'))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _buffer_utils_mod = mod
+        _read_model_tier = getattr(mod, 'read_model_tier', None)
+        return mod
+    except Exception:
+        return None
+
+
+def _get_tier():
+    """Get current model tier from state file written by statusline."""
+    if _read_model_tier:
+        _, tier = _read_model_tier()
+        return tier
+    return 'full'
+
+
 def find_buffer_dir(start_path):
     """Find buffer dir via registry lookup + git-guarded walk-up.
 
     Delegates to buffer_utils.find_buffer_dir. See buffer_utils.py for details.
     """
     try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            'buffer_utils', os.path.join(script_dir, 'buffer_utils.py'))
-        utils = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(utils)
-        return utils.find_buffer_dir(start_path)
+        utils = _load_buffer_utils()
+        if utils:
+            return utils.find_buffer_dir(start_path)
     except Exception:
-        # Fallback: original walk-up (no git guard) if buffer_utils fails
-        current = os.path.abspath(start_path)
-        while True:
-            candidate = os.path.join(current, '.claude', 'buffer', 'handoff.json')
-            if os.path.exists(candidate):
-                return os.path.join(current, '.claude', 'buffer')
-            parent = os.path.dirname(current)
-            if parent == current:
-                return None
-            current = parent
+        pass
+    # Fallback: original walk-up (no git guard) if buffer_utils fails
+    current = os.path.abspath(start_path)
+    while True:
+        candidate = os.path.join(current, '.claude', 'buffer', 'handoff.json')
+        if os.path.exists(candidate):
+            return os.path.join(current, '.claude', 'buffer')
+        parent = os.path.dirname(current)
+        if parent == current:
+            return None
+        current = parent
 
 
 def read_json(path):
@@ -95,8 +121,13 @@ def read_hook_input():
     return {}
 
 
-def generate_directive_context(buffer_dir):
+def generate_directive_context(buffer_dir, tier='full'):
     """Generate compaction directive context from compact-directives.md and session depth.
+
+    Tier scaling:
+      full:     All sections (on-disk, threads, vocabulary, depth).
+      moderate: Skip vocabulary section.
+      lean:     Only active threads + session depth. Skip on-disk paths, vocabulary.
 
     Returns a formatted string to append to the post-compaction injection.
     Returns empty string if no directives file exists or it's empty.
@@ -148,17 +179,18 @@ def generate_directive_context(buffer_dir):
     lines.append('--- COMPACTION DIRECTIVES ---')
     lines.append('')
 
-    # On Disk section
-    on_disk = sections.get('On Disk', '')
-    if on_disk:
-        lines.append('CONTEXT ON DISK (recoverable via tools):')
-        for item in on_disk.split('\n'):
-            item = item.strip()
-            if item.startswith('- '):
-                lines.append(item)
-        lines.append('')
+    # On Disk section (skip for lean — model can read files on demand)
+    if tier != 'lean':
+        on_disk = sections.get('On Disk', '')
+        if on_disk:
+            lines.append('CONTEXT ON DISK (recoverable via tools):')
+            for item in on_disk.split('\n'):
+                item = item.strip()
+                if item.startswith('- '):
+                    lines.append(item)
+            lines.append('')
 
-    # Active Threads section
+    # Active Threads section (always shown)
     threads = sections.get('Active Threads', '')
     if threads:
         lines.append('ACTIVE THREADS:')
@@ -168,15 +200,16 @@ def generate_directive_context(buffer_dir):
                 lines.append(item)
         lines.append('')
 
-    # Session Vocabulary section
-    vocab = sections.get('Session Vocabulary', '')
-    if vocab and vocab.strip():
-        lines.append('SESSION VOCABULARY:')
-        for item in vocab.split('\n'):
-            item = item.strip()
-            if item.startswith('- '):
-                lines.append(item)
-        lines.append('')
+    # Session Vocabulary section (skip for moderate and lean)
+    if tier == 'full':
+        vocab = sections.get('Session Vocabulary', '')
+        if vocab and vocab.strip():
+            lines.append('SESSION VOCABULARY:')
+            for item in vocab.split('\n'):
+                item = item.strip()
+                if item.startswith('- '):
+                    lines.append(item)
+            lines.append('')
 
     # Session depth and adaptive guidance
     lines.append(f'SESSION DEPTH: {depth} save cycles.')
@@ -341,11 +374,16 @@ def cmd_pre_compact(hook_input):
         except (FileNotFoundError, OSError):
             pass
 
+        # Read model tier
+        _load_buffer_utils()
+        model_tier = _get_tier()
+
         event = {
             'event': 'compact',
             'threads': thread_count,
             'off_count': off_count,
             'headroom_tier': headroom_tier,
+            'model_tier': model_tier,
         }
         if context_pct is not None:
             event['context_pct'] = context_pct
@@ -442,8 +480,13 @@ def detect_distill_in_progress(cwd):
     return result if result else None
 
 
-def build_compact_summary(hot, buffer_dir, hot_max, warm_max, cold_max):
+def build_compact_summary(hot, buffer_dir, hot_max, warm_max, cold_max, tier='full'):
     """Build a concise buffer summary for post-compaction context injection.
+
+    Tier scaling:
+      full:     All sections. Current behavior.
+      moderate: Skip narrative. Trim briefing (20->10 lines), remarks (5->3), questions (3->2).
+      lean:     Session state, active work, orientation, open threads, natural summary, layer sizes only.
 
     Shorter than a full buffer read -- focuses on orientation and active work
     state rather than deep reference material.
@@ -511,80 +554,91 @@ def build_compact_summary(hot, buffer_dir, hot_max, warm_max, cold_max):
             status = t.get('status', '?')
             desc = t.get('thread', '?')
             ref = t.get('ref', '')
-            ref_str = f" -> {ref}" if ref else ""
-            lines.append(f"  [{status}] {desc}{ref_str}")
+            # Lean: status + thread only, no refs
+            if tier == 'lean':
+                lines.append(f"  [{status}] {desc}")
+            else:
+                ref_str = f" -> {ref}" if ref else ""
+                lines.append(f"  [{status}] {desc}{ref_str}")
         lines.append("")
 
-    # --- Recent decisions (last 3) ---
+    # --- Recent decisions ---
     decisions = hot.get('recent_decisions', [])
     if decisions:
+        limit = 2 if tier == 'lean' else 3
         lines.append(f"## Recent Decisions ({len(decisions)})")
-        for d in decisions[-3:]:
+        for d in decisions[-limit:]:
             lines.append(f"  {d.get('what', '?')} -> {d.get('chose', '?')}")
-        if len(decisions) > 3:
-            lines.append(f"  ... and {len(decisions) - 3} more")
+        if len(decisions) > limit:
+            lines.append(f"  ... and {len(decisions) - limit} more")
         lines.append("")
 
-    # --- Instance notes (critical for continuity) ---
-    notes = hot.get('instance_notes', {})
-    if notes:
-        lines.append("## Instance Notes")
-        remarks = notes.get('remarks', [])
-        for r in remarks[:5]:
-            lines.append(f"  * {r}")
-        if len(remarks) > 5:
-            lines.append(f"  ... and {len(remarks) - 5} more")
-        oq = notes.get('open_questions', [])
-        if oq:
-            for q in oq[:3]:
-                lines.append(f"  ? {q}")
-        lines.append("")
+    # --- Instance notes (skip for lean) ---
+    if tier != 'lean':
+        notes = hot.get('instance_notes', {})
+        if notes:
+            lines.append("## Instance Notes")
+            remarks = notes.get('remarks', [])
+            remarks_limit = 3 if tier == 'moderate' else 5
+            for r in remarks[:remarks_limit]:
+                lines.append(f"  * {r}")
+            if len(remarks) > remarks_limit:
+                lines.append(f"  ... and {len(remarks) - remarks_limit} more")
+            oq = notes.get('open_questions', [])
+            if oq:
+                oq_limit = 2 if tier == 'moderate' else 3
+                for q in oq[:oq_limit]:
+                    lines.append(f"  ? {q}")
+            lines.append("")
 
-    # --- Session briefing (if exists) ---
-    briefing_path = os.path.join(buffer_dir, 'briefing.md')
-    if os.path.isfile(briefing_path):
-        try:
-            with open(briefing_path, 'r', encoding='utf-8-sig') as f:
-                briefing_text = f.read().strip()
-            if briefing_text:
-                lines.append("## Session Briefing (from last handoff)")
-                briefing_lines = briefing_text.split('\n')
-                for bl in briefing_lines[:20]:
-                    lines.append(bl)
-                if len(briefing_lines) > 20:
-                    lines.append(
-                        f"... ({len(briefing_lines) - 20} more lines "
-                        "in .claude/buffer/briefing.md)"
-                    )
-                lines.append("")
-        except (IOError, UnicodeDecodeError):
-            pass
+    # --- Session briefing (skip for lean) ---
+    if tier != 'lean':
+        briefing_path = os.path.join(buffer_dir, 'briefing.md')
+        if os.path.isfile(briefing_path):
+            try:
+                with open(briefing_path, 'r', encoding='utf-8-sig') as f:
+                    briefing_text = f.read().strip()
+                if briefing_text:
+                    lines.append("## Session Briefing (from last handoff)")
+                    briefing_lines = briefing_text.split('\n')
+                    max_lines = 10 if tier == 'moderate' else 20
+                    for bl in briefing_lines[:max_lines]:
+                        lines.append(bl)
+                    if len(briefing_lines) > max_lines:
+                        lines.append(
+                            f"... ({len(briefing_lines) - max_lines} more lines "
+                            "in .claude/buffer/briefing.md)"
+                        )
+                    lines.append("")
+            except (IOError, UnicodeDecodeError):
+                pass
 
-    # --- Recent beta narrative (high-relevance) ---
-    beta_path = os.path.join(buffer_dir, 'beta', 'narrative.jsonl')
-    if os.path.isfile(beta_path):
-        try:
-            beta_entries = []
-            with open(beta_path, 'r', encoding='utf-8-sig') as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        try:
-                            e = json.loads(line)
-                            if e.get('r', 0) >= 0.5 and not e.get('promoted'):
-                                beta_entries.append(e)
-                        except json.JSONDecodeError:
-                            pass
-            if beta_entries:
-                lines.append("## Session Narrative (high-relevance)")
-                for e in beta_entries[-5:]:
-                    tick = e.get('tick', '?')
-                    r_val = e.get('r', 0)
-                    text = e.get('text', '')
-                    lines.append(f"  [{tick}] (r={r_val:.1f}) {text}")
-                lines.append("")
-        except (IOError, UnicodeDecodeError):
-            pass
+    # --- Recent beta narrative (skip for moderate and lean) ---
+    if tier == 'full':
+        beta_path = os.path.join(buffer_dir, 'beta', 'narrative.jsonl')
+        if os.path.isfile(beta_path):
+            try:
+                beta_entries = []
+                with open(beta_path, 'r', encoding='utf-8-sig') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                e = json.loads(line)
+                                if e.get('r', 0) >= 0.5 and not e.get('promoted'):
+                                    beta_entries.append(e)
+                            except json.JSONDecodeError:
+                                pass
+                if beta_entries:
+                    lines.append("## Session Narrative (high-relevance)")
+                    for e in beta_entries[-5:]:
+                        tick = e.get('tick', '?')
+                        r_val = e.get('r', 0)
+                        text = e.get('text', '')
+                        lines.append(f"  [{tick}] (r={r_val:.1f}) {text}")
+                    lines.append("")
+            except (IOError, UnicodeDecodeError):
+                pass
 
     # --- Natural summary ---
     ns = hot.get('natural_summary', '')
@@ -593,34 +647,37 @@ def build_compact_summary(hot, buffer_dir, hot_max, warm_max, cold_max):
         lines.append(ns)
         lines.append("")
 
-    # --- Concept map digest (counts only) ---
-    cmd = hot.get('concept_map_digest', {})
-    if cmd:
-        meta_cm = cmd.get('_meta', {})
-        total = meta_cm.get('total_entries', '?')
-        flagged = cmd.get('flagged', [])
-        lines.append(f"## Concept Map: {total} entries")
-        if flagged:
-            lines.append(f"FLAGGED: {', '.join(str(f) for f in flagged)}")
-        recent = cmd.get('recent_changes', [])
-        if recent:
-            lines.append(f"Recent changes: {len(recent)} entries")
-        lines.append("")
+    # --- Concept map digest (skip for lean) ---
+    if tier != 'lean':
+        cmd = hot.get('concept_map_digest', {})
+        if cmd:
+            meta_cm = cmd.get('_meta', {})
+            total = meta_cm.get('total_entries', '?')
+            flagged = cmd.get('flagged', [])
+            lines.append(f"## Concept Map: {total} entries")
+            if flagged:
+                lines.append(f"FLAGGED: {', '.join(str(f) for f in flagged)}")
+            recent = cmd.get('recent_changes', [])
+            if recent:
+                lines.append(f"Recent changes: {len(recent)} entries")
+            lines.append("")
 
-    # --- Convergence web digest (counts only) ---
-    cwd_digest = hot.get('convergence_web_digest', {})
-    if cwd_digest:
-        cw_meta = cwd_digest.get('_meta', {})
-        cw_total = cw_meta.get('total_entries', '?')
-        lines.append(f"## Convergence Web: {cw_total} entries")
-        lines.append("")
+    # --- Convergence web digest (skip for lean) ---
+    if tier != 'lean':
+        cwd_digest = hot.get('convergence_web_digest', {})
+        if cwd_digest:
+            cw_meta = cwd_digest.get('_meta', {})
+            cw_total = cw_meta.get('total_entries', '?')
+            lines.append(f"## Convergence Web: {cw_total} entries")
+            lines.append("")
 
-    # --- Memory config ---
-    mc = hot.get('memory_config', {})
-    if mc:
-        lines.append(f"## Memory: integration={mc.get('integration', '?')}")
-        lines.append(f"Path: {mc.get('path', '?')}")
-        lines.append("")
+    # --- Memory config (skip for lean) ---
+    if tier != 'lean':
+        mc = hot.get('memory_config', {})
+        if mc:
+            lines.append(f"## Memory: integration={mc.get('integration', '?')}")
+            lines.append(f"Path: {mc.get('path', '?')}")
+            lines.append("")
 
     # --- Layer sizes ---
     hot_lines = len(json.dumps(hot, indent=2).split('\n'))
@@ -692,7 +749,7 @@ def build_compact_summary(hot, buffer_dir, hot_max, warm_max, cold_max):
         lines.append("")
 
     # --- Compaction directives ---
-    directive_context = generate_directive_context(buffer_dir)
+    directive_context = generate_directive_context(buffer_dir, tier=tier)
     if directive_context:
         lines.append(directive_context)
 
@@ -760,8 +817,12 @@ def cmd_post_compact(hook_input):
     # Detect layer limit overrides
     hot_max, warm_max, cold_max = detect_layer_limits(cwd)
 
-    # Build concise summary for injection
-    context = build_compact_summary(hot, buffer_dir, hot_max, warm_max, cold_max)
+    # Detect model tier for context scaling
+    _load_buffer_utils()
+    tier = _get_tier()
+
+    # Build concise summary for injection (tier-scaled)
+    context = build_compact_summary(hot, buffer_dir, hot_max, warm_max, cold_max, tier=tier)
 
     # Clean up marker
     try:

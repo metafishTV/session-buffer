@@ -218,6 +218,15 @@ After registering the project, configure how MEMORY.md and the sigma trunk coexi
 
 6. **If MEMORY.md does not exist**: create a minimal orientation card with project location (from git/cwd) and a sigma trunk pointer. Set `memory_config.integration` to `"full"`.
 
+### 0g: Statusline notice (first-run only)
+
+After first-run setup completes, check `~/.claude/settings.json` for a `statusLine` key.
+
+If **not present**: tell the user (not a popup — just a message):
+> "Tip: Run `/buffer:setup-statusline` to enable the buffer statusline — shows model tier, context pressure, football state, and buffer mode at a glance."
+
+If already configured: skip silently.
+
 ---
 
 ## Standard On-Hand Process
@@ -371,7 +380,7 @@ echo "loaded" > .claude/buffer/.buffer_loaded
 
 Tell the user:
 ```
-buffer v3.8.1 | [scope] mode | Alpha: N referents (if present) | W: [ratio]
+buffer v3.8.2 | [scope] mode | Alpha: N referents (if present) | W: [ratio]
 Context reconstructed from [date] handoff ([N days ago]). Ready to continue from [current_phase].
 Autosave armed — sigma trunk will stay current throughout the session.
 ```

@@ -95,6 +95,64 @@ def read_registry(path=None):
     return data
 
 
+MODEL_TIER_PATH = os.path.join(os.path.expanduser('~'), '.claude', 'buffer', '.model_tier')
+
+FOOTBALL_REGISTRY_PATH = os.path.join(
+    os.path.expanduser('~'), '.claude', 'buffer', 'football-registry.json')
+
+
+def model_tier_from_name(display_name):
+    """Map a model display name to a tier.
+
+    opus -> 'full', sonnet -> 'moderate', haiku -> 'lean', unknown -> 'full'.
+    """
+    if not display_name:
+        return 'full'
+    name_lower = display_name.lower()
+    if 'opus' in name_lower:
+        return 'full'
+    elif 'sonnet' in name_lower:
+        return 'moderate'
+    elif 'haiku' in name_lower:
+        return 'lean'
+    return 'full'
+
+
+def write_model_tier(display_name, tier, path=None):
+    """Write current model+tier to state file. Called by statusline on every turn."""
+    if path is None:
+        path = MODEL_TIER_PATH
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump({'model': display_name, 'tier': tier}, f)
+    except OSError:
+        pass
+
+
+def read_model_tier(path=None):
+    """Read model+tier from state file. Returns (model_name, tier).
+
+    Fail-safe: returns ('unknown', 'full') on any error.
+    """
+    if path is None:
+        path = MODEL_TIER_PATH
+    data = _read_json(path)
+    if data and 'tier' in data:
+        return (data.get('model', 'unknown'), data.get('tier', 'full'))
+    return ('unknown', 'full')
+
+
+def read_football_registry(path=None):
+    """Read global football registry. Returns dict with 'balls' key, or empty."""
+    if path is None:
+        path = FOOTBALL_REGISTRY_PATH
+    data = _read_json(path)
+    if not data or not isinstance(data, dict):
+        return {'balls': {}}
+    return data
+
+
 def find_buffer_dir(cwd, registry_path=None):
     """Find the buffer directory for the given working directory.
 

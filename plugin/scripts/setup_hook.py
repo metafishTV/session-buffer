@@ -145,7 +145,7 @@ def check_alpha_consistency(buffer_dir):
     return None
 
 
-BUFFER_RULES_VERSION = "3.8.0"
+BUFFER_RULES_VERSION = "3.8.2"
 
 BUFFER_RULES_CONTENT = """\
 <!-- managed by buffer plugin v{version} — do not edit manually -->

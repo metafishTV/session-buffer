@@ -8,7 +8,7 @@
   },
   "metadata": {
     "description": "Memory and continuity tools for Claude Code — session buffer + source distillation",
-    "version": "3.8.1",
+    "version": "3.8.2",
     "homepage": "https://github.com/metafishTV/memory-tools",
     "license": "MIT",
     "totalPlugins": 2,
@@ -18,7 +18,7 @@
     {
       "name": "buffer",
       "description": "Three-layer memory buffer for cross-instance continuity. Preserves decisions, open threads, concept maps, and working context across Claude Code sessions.",
-      "version": "3.8.1",
+      "version": "3.8.2",
       "source": "./plugin",
       "category": "productivity",
       "keywords": ["session", "buffer", "memory", "context", "handoff", "continuity"],

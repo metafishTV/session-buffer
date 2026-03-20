@@ -2,6 +2,26 @@
 
 All notable changes to buffer are documented here.
 
+## [buffer 3.8.2] - 2026-03-20
+
+### Model tier detection + adaptive scaling
+- **`model_tier_from_name()` / `write_model_tier()` / `read_model_tier()`** — shared utilities in buffer_utils.py. Statusline writes model+tier to `~/.claude/buffer/.model_tier` on every turn; other scripts read it.
+- **Tier-scaled compaction** — `build_compact_summary()` and `generate_directive_context()` accept `tier` parameter. Sonnet: skip narrative, trim briefing/remarks/questions. Haiku: minimal recovery (state, active work, orientation, threads, summary, layer sizes only). Opus unchanged.
+- **`model_tier` in telemetry** — pre-compact events now include the active model tier.
+
+### Enhanced statusline (plugin-shipped)
+- **Full rewrite of plugin statusline.py** — two-line ANSI-colored display with model+tier, buffer mode, football count, git branch+staged/modified, context bar, cache ratio, cost, duration, lines changed.
+- **Registry-based buffer discovery** — uses `find_buffer_dir()` instead of CWD-relative. Fixes `buf:--` when CWD isn't project root.
+- **`/buffer:setup-statusline`** — new skill for opt-in statusline configuration. Detects existing config, asks before overwriting.
+- **First-run statusline notice** — `/buffer:on` mentions statusline availability during first-run setup.
+
+### Enhanced buffer:status
+- **Model tier + mismatch notice** — shows active model, tier, warns if not on Opus.
+- **Football state** — lists in-flight, caught, returned balls with IDs and dates.
+- **Save staleness** — flags handoffs older than 2 days.
+- **Session depth** — shows save/restore cycle count.
+- **Desktop app parity** — provides all statusline data via on-demand skill for environments without statusline support.
+
 ## [buffer 3.8.1] - 2026-03-20
 
 ### Football registry self-heal + session identity fixes
