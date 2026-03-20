@@ -380,7 +380,7 @@ echo "loaded" > .claude/buffer/.buffer_loaded
 
 Tell the user:
 ```
-buffer v3.8.3 | [scope] mode | Alpha: N referents (if present) | W: [ratio]
+buffer v3.8.4 | [scope] mode | Alpha: N referents (if present) | W: [ratio]
 Context reconstructed from [date] handoff ([N days ago]). Ready to continue from [current_phase].
 Autosave armed — sigma trunk will stay current throughout the session.
 ```

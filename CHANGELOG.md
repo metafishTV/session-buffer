@@ -2,6 +2,31 @@
 
 All notable changes are documented here.
 
+## [distill 3.2.1] - 2026-03-20
+
+### Cross-plugin script discovery
+- **Extract + Integrate skills** now locate `buffer_manager.py` via `find` command at skill start instead of assuming it lives in the distill plugin's directory. Fixes recurring "no such file" errors when distill skills try to call buffer_manager.py (which belongs to the buffer plugin).
+
+## [buffer 3.8.4] - 2026-03-20
+
+### Global football storage
+- **Footballs now live at `~/.claude/buffer/footballs/`** — plugin-native global storage, not project-local. Each ball carries `project_root` + `buffer_dir` so workers find the project regardless of cwd.
+- **Auto-migration** — `status` command detects project-local football files and migrates to global on first run.
+- **Unified system** — removed legacy single-ball vs multi-ball mode split. One code path.
+- **`session_type` derived from ball state** (in_flight, returned, caught), not trunk presence. Fixes fresh worker sessions misrouted to Planner Absorb because `handoff.json` existed.
+
+### Football contract enforcement
+- **Throw (planner)** — catch skill rewritten with mandatory full instruction read-through, step-by-step execution tracking, deviation logging, and hard requirements for showing work and test evidence.
+- **Catch (planner absorb)** — verification step checks worker's step accounting and test evidence before trunk absorption.
+
+### Script path resolution
+- **All skills** (catch, throw, off) now resolve script paths from plugin base directory via `<scripts>` placeholder, not cwd-relative. Fixes "no such file" errors from non-project directories.
+
+### Encoding + safety
+- **PreToolUse hook** blocks `echo`-piped JSON to `buffer_manager.py` — Windows shell mangles quotes and special chars. Guides to temp file + redirect pattern.
+- **`PYTHONUTF8=1`** recommended in Claude Code settings — makes Python default to UTF-8 on Windows, eliminating cp1252 decode errors in inline Python.
+- Fixed bare `open()` in buffer_manager.py to use `encoding='utf-8'`.
+
 ## [distill 3.2.0] - 2026-03-20
 
 ### Skill invocation gate — structural pipeline enforcement
