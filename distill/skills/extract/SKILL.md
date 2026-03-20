@@ -7,6 +7,16 @@ description: Extract raw content from source documents (PDF, image, web, audio).
 
 Extract raw content from source documents and prepare it for analytic passes.
 
+## Cross-Plugin Script Discovery
+
+`buffer_manager.py` belongs to the **buffer plugin**, not this plugin. Locate it once at skill start:
+
+```bash
+find ~/.claude/plugins/cache -name buffer_manager.py -path "*/buffer/*/scripts/*" 2>/dev/null | head -1
+```
+
+Store the result as `<buffer_scripts>` for all subsequent commands in this skill. If not found, alpha bin operations (redistillation check) are unavailable — proceed without them but note the gap.
+
 ## Prerequisites
 
 **Context check**: The parent `distill` skill reads the project config once and holds it in conversation context. Verify these values are already loaded before re-reading the file:
@@ -51,7 +61,7 @@ If running standalone (not invoked by the parent skill), read the project distil
 3. Check directory exists: `[figures_dir]/[Source-Label]/`
 4. Check alpha bin: convert label to kebab-case (`label.lower().replace('_', '-')`) and query:
    ```bash
-   python ${CLAUDE_PLUGIN_ROOT}/scripts/buffer_manager.py alpha-query --buffer-dir [project_root]/.claude/buffer/ --source [kebab-case-label]
+   python <buffer_scripts>/buffer_manager.py alpha-query --buffer-dir [project_root]/.claude/buffer/ --source [kebab-case-label]
    ```
    If this returns any entries, the source has existing alpha entries.
 

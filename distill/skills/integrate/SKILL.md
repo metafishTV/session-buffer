@@ -7,13 +7,23 @@ description: Post-distillation updates to project indexes, session buffer, and r
 
 Update project indexes, session buffer, and reference bin after distillation completes.
 
+## Cross-Plugin Script Discovery
+
+`buffer_manager.py` belongs to the **buffer plugin**, not this plugin. Locate it once at skill start:
+
+```bash
+find ~/.claude/plugins/cache -name buffer_manager.py -path "*/buffer/*/scripts/*" 2>/dev/null | head -1
+```
+
+Store the result as `<buffer_scripts>` for all `buffer_manager.py` commands below. If not found, enter File-Only Mode.
+
 ## Mode Detection
 
 Detect buffer plugin availability **silently** — no error messages if absent.
 
 ```
 Buffer plugin detected = ALL of:
-  1. buffer_manager.py exists in plugin scripts directory
+  1. buffer_manager.py found via cross-plugin discovery above
   2. .claude/buffer/ directory exists with at least handoff.json
 ```
 
@@ -83,7 +93,7 @@ Before any alpha write, check if `alpha/index.json` has existing entries for thi
 1. Inventory the lite entries (IDs, concept keys, source reference)
 2. The full distillation supersedes them — delete the lite entries:
    ```bash
-   buffer_manager.py alpha-delete --buffer-dir .claude/buffer/ --id w:N [w:M ...]
+   python <buffer_scripts>/buffer_manager.py alpha-delete --buffer-dir .claude/buffer/ --id w:N [w:M ...]
    ```
 3. Proceed to the standard alpha write below — new full entries replace the lite ones
 4. Log in warm `validation_log`:
@@ -100,7 +110,7 @@ This is seamless — no user interaction needed. The full distillation naturally
 **Step 2a: Inventory existing entries** — Scan `alpha/index.json` for all entries where `source` matches the source folder (kebab-case of source label). Collect their IDs, concept keys, and file paths.
 
 ```bash
-buffer_manager.py alpha-query --buffer-dir .claude/buffer/ --source [kebab-case-source]
+python <buffer_scripts>/buffer_manager.py alpha-query --buffer-dir .claude/buffer/ --source [kebab-case-source]
 ```
 
 **Step 2b: Handle by mode**:
@@ -115,7 +125,7 @@ buffer_manager.py alpha-query --buffer-dir .claude/buffer/ --source [kebab-case-
 1. For each concept in the new interpretation's Project Significance table, check if an existing alpha entry has the same concept key (case-insensitive, separator-normalized).
 2. **Match found**: Update the existing entry's `.md` file body in place. Preserve the original w: ID. Use `alpha-enrich` to replace the body content:
    ```bash
-   echo '[{"id":"w:NNN","body":"## Definition\n...updated content..."}]' | buffer_manager.py alpha-enrich --buffer-dir .claude/buffer/
+   echo '[{"id":"w:NNN","body":"## Definition\n...updated content..."}]' | python <buffer_scripts>/buffer_manager.py alpha-enrich --buffer-dir .claude/buffer/
    ```
 3. **No match** (genuinely new concept): Create via standard `alpha-write` below.
 4. **Orphaned** (old entry's concept key not in new interpretation): Add `"orphaned_by_redistill": "[date]"` to the entry in `index.json`. Clear `distillation` and `marker` fields (the old distillation no longer has this concept). The entry falls back to `.md` file reading via `alpha-query`. Do NOT delete the entry — convergence web edges may depend on it. Log in validation_log with status `ORPHANED`.
@@ -123,7 +133,7 @@ buffer_manager.py alpha-query --buffer-dir .claude/buffer/ --source [kebab-case-
 **`delete` mode**:
 1. Delete all existing alpha `.md` files for this source:
    ```bash
-   buffer_manager.py alpha-delete --buffer-dir .claude/buffer/ --id w:NNN
+   python <buffer_scripts>/buffer_manager.py alpha-delete --buffer-dir .claude/buffer/ --id w:NNN
    ```
    Repeat for each entry ID from the inventory.
 2. Scan convergence web entries (`cw:` IDs) for any that reference the deleted w: IDs in their `thesis.ref` or `athesis.ref` fields. For each dangling reference:
@@ -193,7 +203,7 @@ echo '[
    "key":"Source:AnotherConcept","maps_to":"[mapping]",
    "ref":"","suggest":null,
    "body":null}
-]' | buffer_manager.py alpha-write --buffer-dir .claude/buffer/
+]' | python <buffer_scripts>/buffer_manager.py alpha-write --buffer-dir .claude/buffer/
 ```
 
 **Marker reference**: The `marker` field is the concept key matching `<!-- CONCEPT:[key] -->` markers in the distillation file. Derive it: lowercase, remove parentheticals, strip special chars, spaces→underscores, truncate at 40 chars. Example: `"Wholeness (W)"` → `wholeness_w`.
@@ -263,7 +273,7 @@ From the interpretation file's Project Significance table and Integration Points
 
 #### Alpha path
 
-Use `buffer_manager.py alpha-write` for convergence network entries:
+Use `python <buffer_scripts>/buffer_manager.py alpha-write` for convergence network entries:
 
 ```bash
 echo '{"type":"convergence_web","source_folder":"[source-folder]",
@@ -271,7 +281,7 @@ echo '{"type":"convergence_web","source_folder":"[source-folder]",
   "athesis":{"ref":"w:Y","label":"SourceB:Concept"},
   "synthesis":"[type_tag] What RELATES them -- shared structural ground (involutory)",
   "metathesis":"What EACH does independently in its own domain (evolutory)",
-  "context":"[1-2 sentences explaining why this convergence matters for the project — what architectural or theoretical insight it unlocks]"}' | buffer_manager.py alpha-write --buffer-dir .claude/buffer/
+  "context":"[1-2 sentences explaining why this convergence matters for the project — what architectural or theoretical insight it unlocks]"}' | python <buffer_scripts>/buffer_manager.py alpha-write --buffer-dir .claude/buffer/
 ```
 
 Auto-assigns `cw:N` IDs, writes canonical `.md` files (with optional `## Context` section), updates `alpha/index.json` atomically.
@@ -367,7 +377,7 @@ Forward notes health: run `python distill_forward_notes.py health --notes [path]
 
 ```bash
 rm -f .claude/buffer/.distill_active
-buffer_manager.py alpha-validate --buffer-dir .claude/buffer/
+python <buffer_scripts>/buffer_manager.py alpha-validate --buffer-dir .claude/buffer/
 ```
 
 If validation fails, log the failure in Known Issues but do NOT revert writes.
@@ -379,9 +389,9 @@ If validation fails, log the failure in Known Issues but do NOT revert writes.
 After writing new entries, the reinforcement scores, clusters, and relevance grid are stale. Rebuild them:
 
 ```bash
-buffer_manager.py alpha-reinforce --buffer-dir .claude/buffer/
-buffer_manager.py alpha-clusters --buffer-dir .claude/buffer/
-buffer_manager.py alpha-grid-build --buffer-dir .claude/buffer/
+python <buffer_scripts>/buffer_manager.py alpha-reinforce --buffer-dir .claude/buffer/
+python <buffer_scripts>/buffer_manager.py alpha-clusters --buffer-dir .claude/buffer/
+python <buffer_scripts>/buffer_manager.py alpha-grid-build --buffer-dir .claude/buffer/
 ```
 
 These run silently (~100ms total for typical corpus). The grid rebuild ensures the sigma hook's per-message O(1) lookup reflects the newly added entries immediately. If any command fails, log it in Known Issues but continue — the sigma hook falls through to IDF scoring gracefully when the grid is absent or stale.
@@ -513,7 +523,7 @@ Known Issues: [clean run | N issues logged]
 
 **Resolution queue**: After printing the report, check for unresolved concept entries:
 ```bash
-buffer_manager.py alpha-resolve --buffer-dir .claude/buffer/
+python <buffer_scripts>/buffer_manager.py alpha-resolve --buffer-dir .claude/buffer/
 ```
 If any entries have `concept="?"`, include the count in the "Resolution" line of the report. Do NOT auto-resolve — just report the count.
 
@@ -580,7 +590,7 @@ python [plugin-scripts]/distill_recover_integration.py \
 Then pipe the recovery entries to `alpha-write`:
 
 ```bash
-cat _recovery.json | buffer_manager.py alpha-write --buffer-dir .claude/buffer/
+cat _recovery.json | python <buffer_scripts>/buffer_manager.py alpha-write --buffer-dir .claude/buffer/
 ```
 
 ### Step R4: Post-Recovery
