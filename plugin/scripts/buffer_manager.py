@@ -1202,6 +1202,12 @@ def cmd_next_id(args):
         if m:
             layer_max = max(layer_max, int(m.group(1)))
     alpha_max = alpha_max_id(alpha_idx, prefix) if alpha_idx else 0
+    # Safety: also check disk to prevent stale-index collisions
+    alpha_dir = buf_dir / 'alpha'
+    if alpha_dir.is_dir():
+        disk_max_w, disk_max_cw = _alpha_disk_max_ids(alpha_dir)
+        disk_max = disk_max_w if prefix == 'w:' else disk_max_cw
+        alpha_max = max(alpha_max, disk_max)
     print(f"{prefix}{max(layer_max, alpha_max) + 1}")
 
 
@@ -1649,14 +1655,59 @@ def read_alpha_index(buf_dir):
 
 
 def alpha_max_id(index, prefix):
-    """Find the max numeric ID in the alpha index for a given prefix (w: or cw:)."""
+    """Find the max numeric ID in the alpha index for a given prefix (w: or cw:).
+
+    Scans BOTH the entries dict AND the sources dict to prevent
+    stale-index collisions (the entries dict may be incomplete after
+    an external rebuild — see 2026-03-18 incident report).
+    """
     max_n = 0
     pattern = re.compile(rf'^{re.escape(prefix)}(\d+)$')
+    # Source 1: entries dict (canonical per-entry registry)
     for eid in index.get('entries', {}):
         m = pattern.match(eid)
         if m:
             max_n = max(max_n, int(m.group(1)))
+    # Source 2: sources dict (per-directory ID lists — may contain IDs
+    # not yet in entries if the index was rebuilt incompletely)
+    id_key = 'cross_source_ids' if prefix == 'w:' else 'convergence_web_ids'
+    for src_data in index.get('sources', {}).values():
+        for sid in src_data.get(id_key, []):
+            m = pattern.match(sid)
+            if m:
+                max_n = max(max_n, int(m.group(1)))
     return max_n
+
+
+def _alpha_disk_max_ids(alpha_dir):
+    """Scan .md file headers on disk to find the true max w: and cw: IDs.
+
+    This is a safety net against stale index.json — if the index was
+    rebuilt incompletely, the entries dict may report a lower max than
+    what actually exists on disk. Returns (max_w, max_cw).
+    """
+    max_w = 0
+    max_cw = 0
+    w_pattern = re.compile(r'^#\s+w:(\d+)')
+    cw_pattern = re.compile(r'^#\s+cw:(\d+)')
+    for root, dirs, files in os.walk(alpha_dir):
+        for fname in files:
+            if not fname.endswith('.md'):
+                continue
+            fpath = Path(root) / fname
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    header = f.readline()
+            except Exception:
+                continue
+            m = w_pattern.match(header)
+            if m:
+                max_w = max(max_w, int(m.group(1)))
+                continue
+            m = cw_pattern.match(header)
+            if m:
+                max_cw = max(max_cw, int(m.group(1)))
+    return max_w, max_cw
 
 
 def alpha_all_ids(index):
@@ -3218,6 +3269,12 @@ def cmd_alpha_write(args):
     # Track next IDs from current index state
     next_w = alpha_max_id(index, 'w:') + 1
     next_cw = alpha_max_id(index, 'cw:') + 1
+
+    # Safety: also scan .md files on disk for max IDs.
+    # Prevents collisions when index is stale after external rebuild.
+    disk_max_w, disk_max_cw = _alpha_disk_max_ids(alpha_dir)
+    next_w = max(next_w, disk_max_w + 1)
+    next_cw = max(next_cw, disk_max_cw + 1)
 
     # Also check warm layer for max IDs to prevent collisions
     warm = read_json(buf_dir / 'handoff-warm.json')

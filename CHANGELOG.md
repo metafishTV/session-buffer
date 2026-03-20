@@ -2,6 +2,31 @@
 
 All notable changes to buffer are documented here.
 
+## [buffer 3.7.0 / distill 3.1.0] - 2026-03-19
+
+### Managed rules deployment (both plugins)
+- **`.claude/rules/` deployment** — both plugins now deploy managed rules files to the project's `.claude/rules/` directory on SessionStart via setup hooks. Rules files are always loaded into Claude's system prompt and survive context compaction (re-read from disk each turn). This is the missing persistence layer — previously, behavioral directives only lived in SKILL.md files (loaded on demand) and plugin CLAUDE.md (which wasn't actually loading into context).
+- **`buffer-compact-protocol.md`** — post-compaction recovery protocol, user interaction gates (AskUserQuestion enforcement, FULL STOP), autonomy boundaries (no autonomous buffer skill invocation, no routing bypass, no auto-resolve/auto-modify), data integrity (no silent drops, overflow guard, tower file consent), worker session directives (standing orders, full field, dialogue style), epistemic conduct (honest instance notes).
+- **`distill-pipeline-enforcement.md`** — pipeline enforcement (never write distill/interpretation files without skill), extraction prohibition (absolute — no ad-hoc PyMuPDF/fitz), redistillation detection (all four checks mandatory), FULL STOP protocol, forward notes with reserved range protection, figure vs equation policy, distillation voice & atom markers, template-first principle, infrastructure protection (never modify bundled scripts).
+- **`setup_hook.py` (buffer)** — new script, registered on SessionStart. Health checks (stale handoff, orphaned distill marker, alpha consistency) plus managed rules deployment. Version-tagged, idempotent (skips if content unchanged), fail-safe.
+- **`setup_hook.py` (distill)** — new script, registered on SessionStart. Managed rules deployment only. Same idempotent/fail-safe pattern.
+- **Audit-driven content** — rules content assembled from thorough audit of both plugins' SKILL.md files, architecture docs, and agent definitions. 13 buffer directives and 7 distill directives promoted from skill-specific locations to always-loaded rules.
+
+## [buffer 3.6.0] - 2026-03-18
+
+### Multi-ball football + intercept
+- **Multi-ball mode** — throw multiple footballs to parallel workers. Each ball gets a human-readable ID (`MMDD-slug-N`, e.g. `0318-alpha-repair-1`). Registry tracks all balls and their states.
+- **Target types** — balls can target a separate Claude Code `instance` or a dispatched `subagent`. Set via `--target` flag on throw.
+- **`intercept` command** — recover from dead workers or redirect balls. Packs the prior worker's partial progress (completed tasks, decisions, flags) onto the ball as `prior_worker_progress`. Intercepts chain — a ball can pass through multiple workers.
+- **`catch` with selection** — when multiple balls are in flight, returns an `"action": "choose"` response with ball descriptions for the skill layer to present as a popup.
+- **Backward compatible** — no registry file = legacy single-ball mode, unchanged. First `--multiball` throw creates the registry.
+- **Schema update** — `football.schema.json` adds `ball_id`, `target`, `intercepted`, `prior_worker_progress` fields.
+- **README** — documents single-ball, multi-ball, intercept, CLI reference, and file layout.
+
+### Alpha bin auto-increment bug fix
+- **`buffer_manager.py` `alpha_max_id()`** — now scans both `entries` dict AND `sources` dict in index.json, preventing stale-counter collisions after external rebuilds.
+- **`_alpha_disk_max_ids()`** — new safety net in `alpha-write`: scans .md file headers on disk to find the true max ID, independent of the index.
+
 ## [buffer 3.5.0] - 2026-03-17
 
 ### Reliability: encoding, BOM, locking, hollow pipe audit

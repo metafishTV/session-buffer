@@ -23,7 +23,8 @@ def _args(**kwargs):
     defaults = dict(cwd=None, football=None, side=None, type=None,
                     thread=None, alpha_refs=None, completed=None,
                     changes=None, next_action=None,
-                    type_flag=None, content=None, rationale=None)
+                    type_flag=None, content=None, rationale=None,
+                    ball_id=None)
     defaults.update(kwargs)
     return Namespace(**defaults)
 
@@ -151,12 +152,12 @@ def test_archive_names_correctly(valid_football, capsys):
     out = json.loads(capsys.readouterr().out)
     dest = Path(out["archived_to"])
     assert dest.exists()
-    assert dest.name == "2026-03-14-implement-the-buffer-football-script.json"
+    assert dest.name == "2026-03-14-implement-the-buffer.json"
     assert not valid_football.exists()
 
 
 def test_archive_short_description(buffer_dir, capsys):
-    """Fewer than 5 words: use all available words."""
+    """Fewer than 3 words: use all available words."""
     fp = buffer_dir / "football.json"
     fp.write_text(json.dumps({
         "schema_version": 1, "mode": "football", "state": "absorbed",

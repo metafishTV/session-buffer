@@ -1,6 +1,6 @@
 {
   "name": "distill",
-  "version": "3.0.1",
+  "version": "3.1.0",
   "description": "Source distillation pipeline with reference knowledge extraction. Companion to the buffer plugin — distill produces, buffer stores and serves.",
   "author": { "name": "metafish", "url": "https://github.com/metafishTV" },
   "repository": "https://github.com/metafishTV/memory-tools",

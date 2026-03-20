@@ -34,6 +34,8 @@ echo "active" > .claude/buffer/.distill_active
 
 MUST be written before Step 2 and removed in cleanup. If integration fails mid-way, cleanup still removes it.
 
+**Crash safety**: The sigma hook has a 4-hour TTL on this marker. If the skill crashes and the marker is not cleaned up, sigma will auto-recover after 4 hours. However, you MUST still attempt cleanup on any failure path — run `rm -f .claude/buffer/.distill_active` before reporting errors to the user. The TTL is a last-resort safety net, not a substitute for explicit cleanup.
+
 ### Step 1: INDEX.md Update
 
 **Existence check first**: Check if the project index file exists before reading or generating.

@@ -452,7 +452,7 @@ Compute the gap between today and `session_meta.date` from the hot layer.
 Tell the user:
 
 ```
-buffer v3.5.0 | [scope] mode | Alpha: N referents (if present) | W: [ratio]
+buffer v3.6.0 | [scope] mode | Alpha: N referents (if present) | W: [ratio]
 Context reconstructed from [date] handoff ([N days ago]). Ready to continue from [current_phase].
 Autosave armed — sigma trunk will stay current throughout the session.
 ```

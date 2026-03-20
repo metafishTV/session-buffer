@@ -2,18 +2,31 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "football.schema.json",
   "title": "Football",
-  "description": "Cross-session task delegation envelope for buffer:throw / buffer:catch",
+  "description": "Cross-session task delegation envelope for buffer:throw / buffer:catch. Supports single-ball (legacy) and multi-ball modes.",
   "type": "object",
   "required": ["schema_version", "mode", "state", "throw_type", "thrown_by", "throw_count", "thrown_at", "planner_payload"],
-  "additionalProperties": false,
   "properties": {
     "schema_version": {"type": "integer", "const": 1},
     "mode": {"type": "string", "const": "football"},
+    "ball_id": {
+      "type": "string",
+      "description": "Multi-ball ID in MMDD-slug-N format. Absent in legacy single-ball mode.",
+      "pattern": "^\\d{4}-.+-\\d+$"
+    },
+    "target": {
+      "type": "string",
+      "enum": ["instance", "subagent"],
+      "description": "Where this ball is headed: a separate Claude Code instance or a dispatched subagent."
+    },
     "state": {"type": "string", "enum": ["in_flight", "caught", "returned", "absorbed"]},
     "throw_type": {"type": "string", "enum": ["heavy", "lite"]},
     "thrown_by": {"type": "string", "enum": ["planner", "worker"]},
     "throw_count": {"type": "integer", "minimum": 1},
     "thrown_at": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+    "intercepted": {
+      "type": "boolean",
+      "description": "True if this ball has been intercepted at least once."
+    },
     "planner_payload": {
       "type": "object",
       "required": ["thread"],
@@ -31,6 +44,11 @@
             "next_action": {"type": "string", "minLength": 1}
           }
         },
+        "worker_directives": {
+          "type": "array",
+          "description": "Non-negotiable behavioral rules for the worker, distinct from the task description. Presented as a checklist before work begins. Examples: 'USE THE INTERNET for research', 'AUDIT every figure referenced', 'DO NOT touch file X'.",
+          "items": {"type": "string", "minLength": 1}
+        },
         "context": {
           "type": "object",
           "additionalProperties": false,
@@ -39,7 +57,7 @@
               "type": "array",
               "items": {
                 "type": "object",
-                "additionalProperties": false,
+                "additionalProperties": true,
                 "properties": {
                   "what": {"type": "string"},
                   "chose": {"type": "string"},
@@ -49,17 +67,16 @@
             },
             "alpha_refs": {"type": "array", "items": {"type": "string"}},
             "orientation_fragment": {"type": "string"},
-            "dialogue_style": {"type": "string"}
+            "dialogue_style": {"type": ["string", "null"]}
           }
         }
       }
     },
     "worker_output": {
       "type": "object",
-      "additionalProperties": false,
       "properties": {
         "completed": {"type": "array", "items": {"type": "string"}},
-        "changes_made": {"type": "array", "items": {"type": "string"}},
+        "changes_made": {"type": "array", "items": {}},
         "surprised_by": {"type": "array", "items": {"type": "string"}},
         "next_action": {"type": "string"},
         "flagged_for_trunk": {
@@ -67,7 +84,6 @@
           "items": {
             "type": "object",
             "required": ["type", "content", "rationale"],
-            "additionalProperties": false,
             "properties": {
               "type": {"type": "string", "enum": ["alpha_entry", "forward_note", "decision", "open_thread"]},
               "content": {"type": "object"},
@@ -76,6 +92,22 @@
           }
         }
       }
+    },
+    "prior_worker_progress": {
+      "type": "array",
+      "description": "Chain of partial progress from intercepted workers. Each entry is one worker's progress before intercept.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "intercepted_at": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$"},
+          "completed_tasks": {"type": "array", "items": {"type": "string"}},
+          "decisions_made": {"type": "array", "items": {}},
+          "active_task_at_intercept": {"type": "string"},
+          "flagged_for_trunk": {"type": "array", "items": {"type": "object"}},
+          "catch_count": {"type": "integer"}
+        }
+      }
     }
-  }
+  },
+  "additionalProperties": true
 }

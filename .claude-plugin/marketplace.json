@@ -8,17 +8,17 @@
   },
   "metadata": {
     "description": "Memory and continuity tools for Claude Code — session buffer + source distillation",
-    "version": "3.5.0",
+    "version": "3.7.0",
     "homepage": "https://github.com/metafishTV/memory-tools",
     "license": "MIT",
     "totalPlugins": 2,
-    "lastUpdated": "2026-03-17"
+    "lastUpdated": "2026-03-19"
   },
   "plugins": [
     {
       "name": "buffer",
       "description": "Three-layer memory buffer for cross-instance continuity. Preserves decisions, open threads, concept maps, and working context across Claude Code sessions.",
-      "version": "3.5.0",
+      "version": "3.7.0",
       "source": "./plugin",
       "category": "productivity",
       "keywords": ["session", "buffer", "memory", "context", "handoff", "continuity"],
@@ -30,7 +30,7 @@
     {
       "name": "distill",
       "description": "Source distillation pipeline with reference knowledge extraction. Distill PDFs, web pages, images, and recordings into structured reference knowledge. Companion to the buffer plugin.",
-      "version": "3.0.1",
+      "version": "3.1.0",
       "source": "./distill",
       "category": "productivity",
       "keywords": ["distill", "extraction", "knowledge", "reference", "pdf", "analysis"],
